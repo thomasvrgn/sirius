@@ -9,6 +9,7 @@ import Language.Sirius.LLVM (runCompilerPass, getLLContent)
 import Language.Sirius.Module.Bundler (runModuleBundling)
 import Language.Sirius.ANF (runANFPass)
 import Language.Sirius.Memory (runMemoryPass)
+import Language.Sirius.Module.Resolver (runModuleResolver)
 
 main :: IO ()
 main = do
@@ -16,26 +17,30 @@ main = do
   contents <- readFileBS file
   res <- parseSirius file (decodeUtf8 contents)
   case res of
-    Left err -> print err
     Right toplevels -> do
-      res' <- runModuleBundling toplevels
+      res' <- runModuleResolver (fromString file) toplevels
       case res' of
-        Left err -> print err
         Right toplevels -> do
-          res'' <- runMemoryPass toplevels
-          -- mapM_ print res''
-          res' <- runInferencePass res''
+          res' <- runModuleBundling toplevels
           case res' of
-            Left err -> print err <* putStrLn "Typecheck failed"
-            Right (ast, checker) -> do 
-              -- mapM_ print ast
-              res'' <- runMonomorphizationPass ast checker
-              case res'' of
-                Left err -> print err
-                Right res'' -> do
-                  res'' <- runClosureConversionPass res''
-                  res'' <- runANFPass res''
-                  mapM_ print res''
-                  content <- getLLContent res''
-                  writeFileBS "out.ll" content
-                  runCompilerPass res''
+            Right toplevels -> do
+              res'' <- runMemoryPass toplevels
+              -- mapM_ print res''
+              res' <- runInferencePass res''
+              case res' of
+                Right (ast, checker) -> do 
+                  -- mapM_ print ast
+                  res'' <- runMonomorphizationPass ast checker
+                  case res'' of
+                    Right res'' -> do
+                      res'' <- runClosureConversionPass res''
+                      res'' <- runANFPass res''
+                      -- mapM_ print res''
+                      content <- getLLContent res''
+                      writeFileBS "out.ll" content
+                      runCompilerPass res''
+                    Left err -> print err
+                Left err -> print err <* putStrLn "Typecheck failed"
+            Left err -> print err
+        Left err -> print err
+    Left err -> print err
