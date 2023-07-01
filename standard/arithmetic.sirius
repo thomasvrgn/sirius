@@ -1,0 +1,12 @@
+extern concat(a: String, b: String): String;
+
+fn (c: Int) *(other: Int): Int = asm "mul" c other;
+fn (c: Int) +(other: Int): Int = asm "add" c other;
+fn (c: Int) <(other: Int): Bool = asm "icmp" "slt" c other;
+fn (c: Int) >(other: Int): Bool = asm "icmp" "sgt" c other;
+fn (c: Int) -(other: Int): Int = asm "sub" c other;
+fn (c: Bool) ==(other: Bool): Bool = asm "icmp" "eq" c other;
+fn (c: Bool) &&(other: Bool): Bool = if c { other } else { false };
+fn (c: Int) ==(other: Int): Bool = asm "icmp" "eq" c other;
+
+fn (s1: String) +(s2: String): String = concat(s1, s2);

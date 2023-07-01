@@ -1,0 +1,30 @@
+use arithmetic;
+
+extern strlen(text: String): Int;
+extern putchar(c: Char): Int;
+extern show_int(c: Int): String;
+extern show_float(c: Float): String;
+extern show_char(c: Char): String;
+extern strlen(text: String): Int;
+
+property (c: a) show[a](): String;
+
+fn (c: [a]) index[a](idx: Int): a = asm "load" (asm "gep" c idx);
+
+fn printf(text: String): Int = {
+  let size: Int = strlen(text);
+  for i in 0 to size {
+    putchar(text[i]);
+  }
+
+  size;
+}
+
+fn putstr(text: String): Int = printf(text);
+fn putstrln(text: String): Int = printf(text + "\n");
+fn print[a](c: a): Int = printf(c.show() + "\n");
+
+fn (c: Int) show(): String = show_int(c);
+fn (c: Bool) show(): String = if c { "true" } else { "false" };
+fn (c: Char) show(): String = show_char(c);
+fn (c: String) show(): String = "\"" + c + "\"";
