@@ -1,0 +1,15 @@
+a.out.*
+a.out
+
+out.s
+*.c
+*.ll
+
+.cabal-fmt-*
+.vscode
+.metals
+
+dist-newstyle
+.DS_Store
+
+!lib.c
