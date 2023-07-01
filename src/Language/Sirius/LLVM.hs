@@ -22,7 +22,7 @@ findCompiler (x:xs) = do
     Nothing -> findCompiler xs
 
 getCompiler :: IO (Maybe String)
-getCompiler = findCompiler $ "gcc" : "clang" : [ "clang-" ++ show i | i <- [(9 :: Int)..16]]
+getCompiler = findCompiler $ "cc" : "gcc" : "clang" : [ "clang-" ++ show i | i <- [(9 :: Int)..16]]
 
 runLLVM :: MonadFail m => [ANF.Toplevel] -> m AST.Module
 runLLVM xs =
@@ -45,7 +45,7 @@ runLLVMPass xs = do
     LL.withContext $ \context ->
       LL.withModuleFromAST context mod' $ \mod''' -> 
         LL.withHostTargetMachineDefault $ \tm -> do
-    LL.moduleTargetAssembly tm mod'''
+          LL.moduleTargetAssembly tm mod'''
   return $ decodeUtf8 s
 
 pathToLib :: FilePath
