@@ -1,121 +1,4 @@
-// struct Vector[a](data: [a], length: Int, capacity: Int);
-extern malloc[a](size: Int): ref a;
-extern free[a](ptr: ref a): Void;
-extern putchar(c: Char): Int;
-extern strlen(text: String): Int;
-extern realloc[a](ptr: ref a, size: Int): ref a;
-extern sprintf[a](buffer: String, format: String, value: a): Int;
-extern void: Void;
-extern show_int(c: Int): String;
-extern show_float(c: Float): String;
-extern concat(a: String, b: String): String;
-extern show_char(c: Char): String;
-
-struct Reference[a] {
-  value: ref a,
-  ref_count: ref Int
-}
-
-property (c: a) show[a](): String;
-property (c: a) typeof[a](): String;
-property (c: a) free[a](): Void;
-
-fn (c: Int) *(other: Int): Int = asm "mul" c other;
-fn (c: Int) +(other: Int): Int = asm "add" c other;
-fn (c: Int) show(): String = show_int(c);
-fn (c: Int) <(other: Int): Bool = asm "icmp" "slt" c other;
-fn (c: Int) >(other: Int): Bool = asm "icmp" "sgt" c other;
-fn (c: Int) -(other: Int): Int = asm "sub" c other;
-fn (c: Bool) ==(other: Bool): Bool = asm "icmp" "eq" c other;
-fn (c: Bool) &&(other: Bool): Bool = if c { other } else { false };
-fn (c: Int) ==(other: Int): Bool = asm "icmp" "eq" c other;
-fn (c: [a]) index[a](idx: Int): a = asm "load" (asm "gep" c idx);
-
-fn printf(text: String): Int = {
-  let size: Int = strlen(text);
-  for i in 0 to size {
-    putchar(text[i]);
-  }
-
-  size;
-}
-
-fn putstr(text: String): Int = printf(text);
-
-fn (c: Bool) show(): String = if c { "true" } else { "false" };
-
-// fn (c: ref a) show[a](): String = (*c).show();
-fn (c: Char) show(): String = show_char(c);
-fn (s1: String) +(s2: String): String = concat(s1, s2);
-fn print[a](c: a): Int = printf(c.show() + "\n");
-
-fn putstrln(text: String): Int = printf(text + "\n");
-fn (c: Reference[a]) show[a](): String = c.value.show();
-
-fn (c: String) show(): String = "\"" + c + "\"";
-fn (c: String) len(): Int = strlen(c);
-
-fn (c: Reference[a]) index[a](idx: Int): a = c.value[idx];
-
-// Memory management related
-with no-reference-counting fn new_reference[a](value: ref a): Reference[a] = {
-  let ref r: Reference[a] = malloc(sizeof ref Reference[a]);
-  r->value = value;
-  *r->ref_count = 1; 
-
-  *r
-}
-
-with no-reference-counting
-fn deref[a](r: Reference[a]): ref a = r.value;
-
-with no-reference-counting
-fn free_reference[a](r: Reference[a]): Int = {
-  print("VALUE: " + (*r.value).show());
-  *r.ref_count = *r.ref_count - 1;
-  putstrln("Decreasing reference count to " + (*r.ref_count).show());
-  if *r.ref_count == 0 {
-    putstrln("Freeing reference")
-    r.value.free();
-    r.ref_count.free();
-  }
-  0
-}
-
-with no-reference-counting
-fn copy_reference[a](r: Reference[a]): Reference[a] = {
-  *r.ref_count = *r.ref_count + 1;
-  putstrln("Increasing reference count to " + (*r.ref_count).show());
-  r
-}
-
-with no-reference-counting
-fn ref_malloc[a](size: Int): Reference[a] = {
-  let ref r: Reference[a] = malloc(sizeof ref Reference[a]);
-  let ref count: Int = malloc(sizeof ref Int);
-  r->ref_count = count;
-  r->value = malloc(size);
-  *r->ref_count = 1;
-
-  *r
-}
-
-with no-reference-counting
-fn ref_realloc[a](ptr: Reference[Int], size: Int): Reference[a] = {
-  let ref r: Reference[a] = malloc(sizeof ref Reference[a]);
-  r->value = realloc(ptr.value, size);
-  *r->ref_count = *ptr.ref_count + 1;
-
-  *r
-}
-
-fn (c: ref a) free[a](): Void = {
-  c->free();
-  free(c);
-} 
-
-fn (c: Int) free(): Void = void;
-
+use std.prelude;
 
 fn f(): Reference[Int] = {
   let test: Reference[Int] = ref_malloc(12);
@@ -131,7 +14,8 @@ fn g(test: Reference[Int]): Reference[Int] = {
 fn main(): Int = {
   let x: Reference[Int] = f();
   let y: Reference[Int] = g(x);
-  // print( x.ref_count - 1);
-  0
 
+  print(x);
+
+  0
 }
