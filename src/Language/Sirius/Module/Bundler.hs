@@ -15,6 +15,7 @@ import Data.Functor
 import Prelude hiding (local)
 import qualified Language.Sirius.CST.Modules.Namespaced as D
 import qualified Data.Text as L
+import Data.List (nub)
 
 local' :: MonadBundling m => (BundlingState -> BundlingState) -> m a -> m a
 local' f m = do
@@ -236,4 +237,4 @@ resolveImportedUpdate (Located pos _) = E.throwError ("Not implemented", pos)
 
 runModuleBundling :: (E.MonadIO m, MonadFail m) => [Located Toplevel] -> m (Either (Text, Position) [Located Toplevel])
 runModuleBundling toplevel =
-  E.runExceptT (ST.evalStateT (lookupModule Nothing toplevel) (BundlingState [] mempty mempty 0 []))
+  E.runExceptT (ST.evalStateT (nub <$> lookupModule Nothing toplevel) (BundlingState [] mempty mempty 0 []))

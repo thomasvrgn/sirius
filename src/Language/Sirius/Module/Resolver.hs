@@ -21,8 +21,8 @@ getSiriusPath pos = do
 resolveImport :: MonadResolver m => Text -> Text -> Position -> m [Located Toplevel]
 resolveImport dir name pos = do
   stdPath <- getSiriusPath pos
-  let stdName = stdPath </> toString name
-  let path = if "std" `isPrefixOf` toString name then stdName else toString dir </> toString name
+  let stdName = stdPath </> "standard" </> drop 4 (toString name)
+  let path = (if "std" `isPrefixOf` toString name then stdName else toString dir </> toString name) -<.> "sirius"
 
   fileExists <- liftIO $ doesFileExist path
   unless fileExists $ throwError ("Could not find module " <> name, pos)
@@ -39,6 +39,13 @@ resolveImports dir (Located pos (TUse name) : toplevels) = do
   resolved <- resolveImport dir (fromString $ intercalate "/" (map toString name)) pos
   rest <- resolveImports dir toplevels
   return $ (TNamespace "_" resolved :>: pos) : rest
+resolveImports dir (Located pos (TNamespace name toplevels) : toplevels') = do
+  resolved <- resolveImports dir toplevels
+  rest <- resolveImports dir toplevels'
+  return $ (TNamespace name resolved :>: pos) : rest
+resolveImports dir (Located pos (TAnnotation name tl) : toplevels) = do
+  rest <- resolveImports dir toplevels
+  return $ (TAnnotation name tl :>: pos) : rest
 resolveImports dir (toplevel : toplevels) = do
   rest <- resolveImports dir toplevels
   return $ toplevel : rest
