@@ -1,5 +1,5 @@
-
 use io;
+
 extern realloc[a](ptr: ref a, size: Int): ref a;
 extern malloc[a](size: Int): ref a;
 extern free[a](ptr: ref a): Void;
@@ -26,11 +26,8 @@ fn deref[a](r: Reference[a]): ref a = r.value;
 
 with no-reference-counting
 fn free_reference[a](r: Reference[a]): Int = {
-  print("VALUE: " + (*r.value).show());
   *r.ref_count = *r.ref_count - 1;
-  putstrln("Decreasing reference count to " + (*r.ref_count).show());
   if *r.ref_count == 0 {
-    putstrln("Freeing reference")
     r.value.free();
     r.ref_count.free();
   }
@@ -40,7 +37,6 @@ fn free_reference[a](r: Reference[a]): Int = {
 with no-reference-counting
 fn copy_reference[a](r: Reference[a]): Reference[a] = {
   *r.ref_count = *r.ref_count + 1;
-  putstrln("Increasing reference count to " + (*r.ref_count).show());
   r
 }
 
@@ -70,4 +66,4 @@ fn (c: ref a) free[a](): Void = {
 } 
 
 fn (c: Int) free(): Void = void;
-fn (c: Reference[a]) show[a](): String = c.value.show();
+fn (c: Reference[a]) show[a](): String = (*c.value).show();

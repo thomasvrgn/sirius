@@ -22,9 +22,14 @@ fn printf(text: String): Int = {
 
 fn putstr(text: String): Int = printf(text);
 fn putstrln(text: String): Int = printf(text + "\n");
-fn print[a](c: a): Int = printf(c.show() + "\n");
+fn print[a](c: a): Int = {
+  let text: String = c.show();
+  putstrln(text);
+  0
+};
 
 fn (c: Int) show(): String = show_int(c);
 fn (c: Bool) show(): String = if c { "true" } else { "false" };
 fn (c: Char) show(): String = show_char(c);
 fn (c: String) show(): String = "\"" + c + "\"";
+fn (c: ref a) show[a](): String = "ref " + c->show(); 
