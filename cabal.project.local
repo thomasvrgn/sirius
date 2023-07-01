@@ -1,0 +1,5 @@
+ignore-project: False
+tests: True
+benchmarks: True
+package diagnose
+  flags: +parsec-compat
