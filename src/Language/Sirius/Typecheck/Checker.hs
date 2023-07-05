@@ -242,8 +242,79 @@ inferExpression (C.Located _ (C.EAssembly op args)) = do
   args' <- mapM (M.local' . inferExpression) args
   let (_, args'') = unzip args'
   return (t, A.EAssembly op args'')
+inferExpression (C.Located pos (C.EMatch expr cases)) = do
+  (t, e') <- local' $ inferExpression expr
+  (tys, cases') <- L.unzip <$> local' (forM cases (\(pat, expr') -> do
+    (t', pat', vars) <- inferPattern pat
+    unify (t AP.:~: t', pos)
+    (t'', e'') <- withVariables (map (second $ T.Forall []) $ M.toList vars) $ inferExpression expr'
+    return ((t', t''), (pat', e''))))
+
+  (ret, xs) <- case tys of
+    [] -> E.throwError ("Empty match", Nothing, pos)
+    ((_, ret):xs) -> return (ret, xs)
+
+  forM_ xs (\(_, t') -> unify (ret AP.:~: t', pos))
+
+  return (ret, A.EMatch e' cases')
 inferExpression (C.Located pos _) =
   E.throwError ("Invalid expression", Nothing, pos)
+
+inferPattern :: M.MonadChecker m => C.Located C.Pattern -> m (T.Type, A.Pattern, M.Map Text T.Type)
+inferPattern (C.Located _ (C.PVariable (D.Simple name))) = do
+  types' <- ST.gets M.types
+  case M.lookup name types' of
+    Just t -> do
+      t' <- M.instantiate t
+      return (t', A.PVariable name t', M.singleton name t')
+    Nothing -> do
+      t <- M.fresh
+      return (t, A.PVariable name t, M.singleton name t)
+inferPattern (C.Located pos (C.PStruct ty fields)) = do
+  structs <- ST.gets M.types
+  gens <- ST.gets M.generics
+  ty' <- P.toWithEnv ty gens
+  let name = findName ty'
+  case M.lookup name structs of
+    Just (T.Forall _ (T.TRec _ fields')) -> do
+      (tys, fields'', envs) <-
+        unzip3 <$>
+        mapM
+          (\(C.Annoted name' expr) -> do
+             case L.lookup name' fields' of
+               Just t -> do
+                 (t', expr', env) <- M.local' $ inferPattern expr
+                 unify (t AP.:~: t', pos)
+                 return (t', expr', env)
+               Nothing ->
+                 E.throwError ("Field not in struct: " <> name, Nothing, pos))
+          fields
+      let typedFields = zip (map C.annotedName fields) tys
+      return
+        ( T.TRec name typedFields
+        , A.PStruct ty' (zipWith C.Annoted (map C.annotedName fields) fields'')
+        , M.unions envs)
+    Just _ -> E.throwError ("Misformed struct: " <> name, Nothing, pos)
+    Nothing -> E.throwError ("Struct not in scope: " <> name, Nothing, pos)
+inferPattern (C.Located pos (C.PApp (D.Simple name) pats)) = do
+  env <- ST.gets M.types
+  tv <- fresh
+  (t, p, env') <- case M.lookup name env of
+    Nothing -> E.throwError ("Unbound constructor: " <> name, Nothing, pos)
+    Just scheme -> do
+      t <- instantiate scheme
+      return (t, name, M.empty)
+  (t', pats', envs) <- L.unzip3 <$> mapM inferPattern pats
+  unify (t AP.:~: (t' T.:-> tv), pos)
+  return (tv, A.PApp p pats' tv, M.unions envs `M.union` env')
+inferPattern (C.Located _ (C.PLiteral lit)) = do
+  (t, lit') <- inferLiteral lit
+  return (t, A.PLiteral lit', M.empty)
+inferPattern (C.Located _ C.PWildcard) = do
+  t <- M.fresh
+  return (t, A.PWildcard, M.empty)
+inferPattern (C.Located pos _) =
+  E.throwError ("Invalid pattern", Nothing, pos)
 
 inferLiteral :: a ~ C.Literal => M.Infer a m a
 inferLiteral (C.Int i)    = return (T.Int, C.Int i)

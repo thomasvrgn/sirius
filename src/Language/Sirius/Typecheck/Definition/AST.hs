@@ -144,7 +144,29 @@ data Expression
   -- ^ EInternalField denotes an internal field access
   --   The first argument is the object
   --   The second argument is the index of the field
+  | EMatch Expression [MatchCase]
   deriving (Eq)
+
+type MatchCase = (Pattern, Expression)
+
+data Pattern
+  = PVariable Name Type
+  -- ^ PVariable denotes a variable
+  --   The argument is the name of the variable
+  | PStruct Type [Annoted Pattern]
+  -- ^ PStruct denotes a struct
+  --   The first argument is a list of generic type variables
+  --   The second argument is a list of fields
+  | PApp Name [Pattern] Type
+  -- ^ PApp denotes a pattern application
+  --   The first argument is the name of the function
+  --   The second argument is a list of arguments
+  | PWildcard 
+  -- ^ PWildcard denotes a wildcard
+  | PLiteral Literal
+  -- ^ PLiteral denotes a literal
+  --   The argument is the literal
+  deriving Eq
 
 data UpdateExpression
   = UVariable Name Type
@@ -233,3 +255,18 @@ instance T.Show Expression where
   show (EDeclaration name t) = "declare " ++ toString name ++ ": " ++ T.show t
   show (EInternalField object index) =
     T.show object ++ "." ++ show index
+  show (EMatch expression cases) =
+    "match " ++
+    T.show expression ++
+    " {" ++ L.unwords (map showCase cases) ++ "}"
+    where
+      showCase (pattern, expression') =
+        T.show pattern ++ " => " ++ T.show expression'
+        
+instance T.Show Pattern where
+  show (PVariable name t) = "(" <> toString name <> ": " <> show t <> ")"
+  show (PStruct t fields) = T.show t ++ " {" ++ T.show fields ++ "}"
+  show (PApp name arguments _) =
+    T.show name ++ "(" ++ L.intercalate ", " (map T.show arguments) ++ ")"
+  show PWildcard = "_"
+  show (PLiteral literal) = T.show literal

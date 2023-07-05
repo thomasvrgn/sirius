@@ -136,6 +136,8 @@ instance Types Expression where
   free (ELocated e _) = free e
   free (EAssembly _ args) = free args
   free (EDeclaration _ t) = free t
+  free (EMatch e xs) = free e `S.union` free xs
+  free (EInternalField e _) = free e
 
   apply s (EVariable name t) = EVariable name $ apply s t
   apply s (EApplication f xs t) = EApplication (apply s f) (apply s xs) (apply s t)
@@ -160,17 +162,32 @@ instance Types Expression where
   apply s (ELocated e pos) = ELocated (apply s e) pos
   apply s (EAssembly op es) = EAssembly op $ apply s es
   apply s (EDeclaration name t) = EDeclaration name (apply s t)
+  apply s (EMatch e xs) = EMatch (apply s e) $ apply s xs
+  apply s (EInternalField e f) = EInternalField (apply s e) f
 
 instance Types UpdateExpression where
   free (UVariable _ e) = free e
   free (UIndex x y) = free x `S.union` free y
   free (UProperty x _) = free x
   free (UDereference x) = free x
+  free (UInternalField x _) = free x
   
-  apply s (UVariable name e) = UVariable name $ apply s e
-  apply s (UIndex x y)       = UIndex (apply s x) $ apply s y
-  apply s (UProperty x f)    = UProperty (apply s x) f
-  apply s (UDereference x)   = UDereference $ apply s x
+  apply s (UVariable name e)   = UVariable name $ apply s e
+  apply s (UIndex x y)         = UIndex (apply s x) $ apply s y
+  apply s (UProperty x f)      = UProperty (apply s x) f
+  apply s (UDereference x)     = UDereference $ apply s x
+  apply s (UInternalField x f) = UInternalField (apply s x) f
+
+instance Types Pattern where
+  free (PVariable _ t) = free t
+  free (PStruct t xs) = free t `S.union` free xs
+  free (PApp _ xs t) = free xs `S.union` free t
+  free _ = S.empty
+
+  apply s (PVariable name t) = PVariable name $ apply s t
+  apply s (PStruct t xs) = PStruct (apply s t) $ apply s xs
+  apply s (PApp name xs t) = PApp name (apply s xs) $ apply s t
+  apply _ x = x
 
 instance Types Toplevel where
   free _ = error "free not implemented for Toplevel"
