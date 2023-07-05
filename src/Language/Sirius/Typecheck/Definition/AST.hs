@@ -53,6 +53,11 @@ data Toplevel
   --   The third argument is the return type
   --   The fourth argument is a list of arguments
   --   The fifth argument is the body of the function
+  | TEnumeration (Annoted [Generic]) [Annoted Type]
+  -- ^ TEnumeration denotes an enumeration declaration
+  --   The first argument is a list of generic type variables
+  --   The second argument is a list of types
+  | TUnion Text [Annoted Type]
   deriving (Eq)
 
 data Expression
@@ -131,6 +136,14 @@ data Expression
   -- ^ EAssembly denotes an assembly expression
   --   The first argument is the assembly code
   --   The second argument is a list of arguments
+  | EDeclaration Text Type
+  -- ^ EDeclaration denotes a declaration
+  --   The first argument is the name of the declaration
+  --   The second argument is the type of the declaration
+  | EInternalField Expression Int
+  -- ^ EInternalField denotes an internal field access
+  --   The first argument is the object
+  --   The second argument is the index of the field
   deriving (Eq)
 
 data UpdateExpression
@@ -146,6 +159,7 @@ data UpdateExpression
   --   The first argument is the object
   --   The second argument is the index
   | UDereference UpdateExpression
+  | UInternalField UpdateExpression Int
   deriving (Eq)
 
 instance T.Show UpdateExpression where
@@ -153,6 +167,8 @@ instance T.Show UpdateExpression where
   show (UProperty object name) = T.show object ++ "." ++ T.show name
   show (UIndex object index) = T.show object ++ "[" ++ T.show index ++ "]"
   show (UDereference object) = "*" ++ T.show object
+  show (UInternalField object index) =
+    T.show object ++ "." ++ show index
 
 instance T.Show Toplevel where
   show (TFunction generics returnType arguments body) =
@@ -175,6 +191,10 @@ instance T.Show Toplevel where
     T.show returnType ++
     " " ++
     T.show arguments ++ " => " ++ T.show body
+  show (TEnumeration generics variants) =
+    "enum " ++ T.show generics ++ " {" ++ T.show variants ++ "}"
+  show (TUnion generics variants) =
+    "union " ++ T.show generics ++ " {" ++ T.show variants ++ "}"
 
 instance T.Show Expression where
   show (EVariable name t) = "(" <> toString name <> ": " <> show t <> ")"
@@ -210,3 +230,6 @@ instance T.Show Expression where
   show (ELocated expression _) = T.show expression
   show (EAssembly code arguments) =
     "asm(" ++ toString code ++ ", " ++ T.show arguments ++ ")"
+  show (EDeclaration name t) = "declare " ++ toString name ++ ": " ++ T.show t
+  show (EInternalField object index) =
+    T.show object ++ "." ++ show index

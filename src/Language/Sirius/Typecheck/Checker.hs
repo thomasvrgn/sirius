@@ -21,6 +21,7 @@ import qualified Language.Sirius.CST.Expression                 as C
 import qualified Language.Sirius.CST.Modules.Annoted            as C
 import qualified Language.Sirius.CST.Modules.Literal            as C
 import qualified Language.Sirius.CST.Modules.Located            as C
+import qualified Language.Sirius.CST.Modules.Namespaced         as D
 import qualified Language.Sirius.Typecheck.ConstraintSolver     as CS
 import qualified Language.Sirius.Typecheck.Definition.Monad     as M
 import qualified Language.Sirius.Typecheck.Modules.Apply        as AP
@@ -28,7 +29,6 @@ import qualified Language.Sirius.Typecheck.Modules.Substitution as T
 import           Prelude                                        hiding
                                                                 (Constraint,
                                                                  Type)
-import qualified Language.Sirius.CST.Modules.Namespaced as D
 
 type Infer f m f'
    = MonadChecker m =>
@@ -95,9 +95,9 @@ inferExpression (C.Located pos (C.EVariable (D.Simple name))) = do
           case t of
             T.TRec _ fields -> do
               let args = map snd fields
-              return (args T.:-> t, A.ELocated (A.EVariable name (args T.:-> t)) pos)
-            _ ->
-              E.throwError ("Invalid constructor found: " <> name, Nothing, pos)
+              return
+                (args T.:-> t, A.ELocated (A.EVariable name (args T.:-> t)) pos)
+            _ -> return (t, A.ELocated (A.EVariable name t) pos)
     Just scheme -> do
       t <- M.instantiate scheme
       return (t, A.ELocated (A.EVariable name t) pos)
@@ -107,7 +107,11 @@ inferExpression (C.EApplication (C.EProperty z field C.:>: p2) args C.:>: _) = d
   ret <- M.fresh
   unify (AP.Class field t (ts T.:-> ret), p2)
   return
-    (ret, A.EApplication (A.ELocated (A.EClassVariable field t (ts T.:-> ret)) p2) (z' : args') ret)
+    ( ret
+    , A.EApplication
+        (A.ELocated (A.EClassVariable field t (ts T.:-> ret)) p2)
+        (z' : args')
+        ret)
 inferExpression (C.Located pos (C.EApplication f xs)) = do
   (t, f') <- M.local' $ inferExpression f
   (ts, xs') <- unzip <$> mapM (M.local' . inferExpression) xs
@@ -238,7 +242,8 @@ inferExpression (C.Located _ (C.EAssembly op args)) = do
   args' <- mapM (M.local' . inferExpression) args
   let (_, args'') = unzip args'
   return (t, A.EAssembly op args'')
-inferExpression (C.Located pos _) = E.throwError ("Invalid expression", Nothing, pos)
+inferExpression (C.Located pos _) =
+  E.throwError ("Invalid expression", Nothing, pos)
 
 inferLiteral :: a ~ C.Literal => M.Infer a m a
 inferLiteral (C.Int i)    = return (T.Int, C.Int i)
@@ -264,8 +269,7 @@ inferToplevel (C.Located pos (C.TFunction gens (C.Annoted name ret) args body)) 
   let gens' = filter (/= -1) gens''
   let funTy = map snd argsTypes T.:-> ret'
   let args' =
-        (name, T.Forall [] funTy) :
-        map (BF.second (T.Forall [])) argsTypes
+        (name, T.Forall [] funTy) : map (BF.second (T.Forall [])) argsTypes
   (t, e') <-
     P.withGenerics
       generics'''
@@ -281,13 +285,12 @@ inferToplevel (C.Located pos (C.TFunction gens (C.Annoted name ret) args body)) 
           else T.Forall gens' $ T.apply s funTy
   ST.modify $ \s' -> s' {M.variables = M.insert name scheme (M.variables s')}
   ST.modify $ \s' -> s' {M.returnType = T.Void}
-
   when (name == "main" && not (null (T.free (T.apply s e')))) $ do
     E.throwError ("Main cannot handle generic parameters.", Nothing, pos)
-
   return
     ( T.Void
-    , Just $ T.apply s $
+    , Just $
+      T.apply s $
       A.TFunction
         generics''
         (C.Annoted name ret')
@@ -314,8 +317,7 @@ inferToplevel (C.Located pos (C.TFunctionProp gens prop (C.Annoted name ret) arg
   let gens' = filter (/= -1) gens''
   let funTy = map snd argsTypes T.:-> ret'
   let args' =
-        (propName, T.Forall [] propTy) :
-        map (BF.second (T.Forall [])) argsTypes
+        (propName, T.Forall [] propTy) : map (BF.second (T.Forall [])) argsTypes
   (t, e') <-
     P.withGenerics
       generics'''
@@ -343,7 +345,8 @@ inferToplevel (C.Located pos (C.TFunctionProp gens prop (C.Annoted name ret) arg
       }
   return
     ( T.Void
-    , Just $ T.apply s $
+    , Just $
+      T.apply s $
       A.TFunctionProp
         generics''
         prop'
@@ -384,12 +387,41 @@ inferToplevel (C.Located _ (C.TProperty gens (C.Annoted _ propTy) (C.Annoted met
     mapM
       (\(C.Annoted name' ty) -> C.Annoted name' <$> P.toWithEnv ty generics''')
       args
-      
-  let gens' = map (\case (T.TVar i) -> i; _ -> (-1)) generics''
+  let gens' =
+        map
+          (\case
+             (T.TVar i) -> i
+             _          -> (-1))
+          generics''
   let scheme = T.Forall gens' ((propTy' : map C.annotedType args') T.:-> ret')
-  ST.modify $ \s -> s {M.classes = M.insert (propTy', method) scheme (M.classes s)}
+  ST.modify $ \s ->
+    s {M.classes = M.insert (propTy', method) scheme (M.classes s)}
   return (T.Void, Nothing)
-inferToplevel (C.Located pos _) = E.throwError ("Invalid toplevel", Nothing, pos)
+inferToplevel (C.Located _ (C.TEnumeration (C.Annoted name gens) variants)) = do
+  gens' <- ST.gets M.generics
+  generics'' <- mapM (const fresh) gens
+  let generics''' = M.union gens' $ M.fromList $ zip gens generics''
+  let header = T.TApp (T.TId name) generics''
+  variants' <-
+    mapM
+      (\(C.Annoted name' ty) ->
+         C.Annoted name' <$>
+         (if null ty
+            then pure header
+            else (T.:->) <$> mapM (`P.toWithEnv` generics''') ty <*> pure header))
+      variants
+  let variants'' = map (\(C.Annoted name' ty) -> (name', ty)) variants'
+  gens'' <-
+    mapM
+      (\case
+         (T.TVar i) -> return i
+         _          -> return (-1))
+      generics''
+  let tys = map (second (T.Forall gens'')) variants''
+  ST.modify $ \s -> s {M.types = M.union (M.types s) (M.fromList tys)}
+  return (T.Void, Just $ A.TEnumeration (C.Annoted name generics'') variants')
+inferToplevel (C.Located pos _) =
+  E.throwError ("Invalid toplevel", Nothing, pos)
 
 inferUpdate :: M.Infer (C.Located C.UpdateExpression) m A.UpdateExpression
 inferUpdate (C.Located pos (C.UVariable (D.Simple name))) = do
@@ -416,7 +448,8 @@ inferUpdate (C.Located pos (C.UDereference obj)) = do
   (t, e') <- M.local' $ inferUpdate obj
   unify (t AP.:~: T.TAddr tv, pos)
   return (tv, A.UDereference e')
-inferUpdate (C.Located pos _) = E.throwError ("Invalid update expression", Nothing, pos)
+inferUpdate (C.Located pos _) =
+  E.throwError ("Invalid update expression", Nothing, pos)
 
 createType :: [T.Type] -> T.Type
 createType [] = T.Void

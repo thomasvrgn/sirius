@@ -135,6 +135,7 @@ instance Types Expression where
   free (ESizeOf t) = free t
   free (ELocated e _) = free e
   free (EAssembly _ args) = free args
+  free (EDeclaration _ t) = free t
 
   apply s (EVariable name t) = EVariable name $ apply s t
   apply s (EApplication f xs t) = EApplication (apply s f) (apply s xs) (apply s t)
@@ -158,6 +159,7 @@ instance Types Expression where
   apply s (ESizeOf t) = ESizeOf $ apply s t
   apply s (ELocated e pos) = ELocated (apply s e) pos
   apply s (EAssembly op es) = EAssembly op $ apply s es
+  apply s (EDeclaration name t) = EDeclaration name (apply s t)
 
 instance Types UpdateExpression where
   free (UVariable _ e) = free e
@@ -183,6 +185,9 @@ instance Types Toplevel where
       (apply s name)
       (apply s args)
       (apply s body)
+  apply s (TEnumeration name fields) =
+    TEnumeration (apply s name) (apply s fields)
+  apply _ z@(TUnion _ _) = z
 
 instance Types a => Types (C.Annoted a) where
   free = free . C.annotedType
