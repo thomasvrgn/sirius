@@ -25,9 +25,9 @@ main = do
           res' <- runModuleBundling toplevels
           case res' of
             Right toplevels -> do
-              res'' <- runMemoryPass toplevels
+              -- res'' <- runMemoryPass toplevels
               -- mapM_ print res''
-              res' <- runInferencePass res''
+              res' <- runInferencePass toplevels
               case res' of
                 Right (ast, checker) -> do 
                   -- mapM_ print ast
