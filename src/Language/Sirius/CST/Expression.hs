@@ -71,6 +71,7 @@ data Toplevel
   --   The first argument is the name of the namespace
   --   The second argument is a list of toplevel declarations
   | TAnnotation Text (Located Toplevel)
+  | TEnumeration (Annoted [Generic]) [Annoted [Type]]
   deriving (Eq, Show)
 
 data Expression
