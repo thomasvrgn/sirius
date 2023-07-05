@@ -15,6 +15,7 @@ import Language.Sirius.CST.Modules.Type (Type(TypeApp))
 import qualified Language.Sirius.CST.Modules.Namespaced as D
 import Language.Sirius.Parser.Modules.Literal (parseNamespaced)
 import Language.Sirius.Parser.Lexer (stringLiteral)
+import Language.Sirius.Parser.Modules.Pattern (parsePattern)
 
 parseLiteral :: Monad m => L.Sirius m C.Expression
 parseLiteral = L.lexeme $ C.ELiteral <$> L.parseLiteral
@@ -112,7 +113,19 @@ parseExpression = do
       s <- P.getPosition
       _ <- L.reserved "ref"
       return $ \x@(C.Located (_, e) _) -> C.EReference x C.:>: (s, e)
-    postfix = cast P.<|> functionCall P.<|> dotProperty P.<|> arrayProperty P.<|> ptrProperty
+    postfix = cast P.<|> functionCall P.<|> dotProperty P.<|> arrayProperty P.<|> ptrProperty P.<|> match
+
+    match = do
+      L.reserved "match"
+      cases <- L.braces $ P.many (parseCase <* P.optionMaybe L.comma)
+      e <- P.getPosition
+      return $ \x@(C.Located (s, _) _) -> C.EMatch x cases C.:>: (s, e)
+      where
+        parseCase = do
+          pat <- parsePattern
+          L.reservedOp "=>"
+          expr <- parseExpression
+          return (pat, expr)
     cast = do
       L.reserved "as"
       t <- T.parseType
