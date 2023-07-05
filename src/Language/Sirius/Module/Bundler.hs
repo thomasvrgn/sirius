@@ -98,6 +98,14 @@ analyseToplevel (TProperty gens (C.Annoted propName propTy) (C.Annoted name ty) 
   let args' = map C.annotedName args
   tys <- mapM ((`resolveImportedType` pos) . C.annotedType) args
   return [TProperty gens (C.Annoted propName propTy') (C.Annoted name' ty') (zipWith C.Annoted args' tys) :>: pos]
+analyseToplevel (TEnumeration (C.Annoted name gens) constructors :>: pos) = do
+  name' <- createName name
+  let constructors' = map C.annotedName constructors
+  let env' = M.fromList $ zip constructors' constructors'
+  ST.modify $ \s -> s { types = M.insert name' name' (M.union env' (mappings s)) }
+  
+  ST.modify $ \s -> s { mappings = M.union env' (mappings s) }
+  return [TEnumeration (C.Annoted name' gens) constructors :>: pos]
 analyseToplevel x = return [x]
 
 keep :: Ord k => M.Map k a -> [k] -> M.Map k a
