@@ -223,6 +223,10 @@ resolveImportedExpressions (EAnnotation expr t :>: pos) = do
 resolveImportedExpressions (EAssembly op exprs :>: pos) = do
   exprs' <- mapM resolveImportedExpressions exprs
   return $ EAssembly op exprs' :>: pos
+resolveImportedExpressions (EMatch expr cases :>: pos) = do
+  expr' <- resolveImportedExpressions expr
+  cases' <- mapM (\(pat, expr) -> (,) <$> resolveImportedPattern pat <*> resolveImportedExpressions expr) cases
+  return $ EMatch expr' cases' :>: pos
 resolveImportedExpressions (Located pos _) = E.throwError ("Not implemented", pos)
 
 resolveImportedUpdate :: MonadBundling m => Located UpdateExpression -> m (Located UpdateExpression)
@@ -242,6 +246,28 @@ resolveImportedUpdate (UDereference e :>: pos) = do
   e' <- resolveImportedUpdate e
   return $ UDereference e' :>: pos
 resolveImportedUpdate (Located pos _) = E.throwError ("Not implemented", pos)
+
+resolveImportedPattern :: MonadBundling m => Located Pattern -> m (Located Pattern)
+resolveImportedPattern (PVariable name :>: pos) = do
+  mappings' <- ST.gets mappings
+  case M.lookup (makeName name) mappings' of
+    Just name' -> return $ PVariable (D.Simple name') :>: pos
+    Nothing -> return $ PVariable name :>: pos
+resolveImportedPattern (PStruct n fields :>: pos) = do
+  n' <- resolveImportedType n pos
+  fields' <- mapM (\(C.Annoted name pat) -> C.Annoted name <$> resolveImportedPattern pat) fields
+  return $ PStruct n' fields' :>: pos
+resolveImportedPattern (PApp name pats :>: pos) = do
+  mappings' <- ST.gets mappings
+  name' <- case M.lookup (makeName name) mappings' of
+    Just name' -> return $ D.Simple name'
+    Nothing -> return name
+  pats' <- mapM resolveImportedPattern pats
+  return $ PApp name' pats' :>: pos
+resolveImportedPattern (PWildcard :>: pos) = return (PWildcard :>: pos)
+resolveImportedPattern (PLiteral l :>: pos) = return $ PLiteral l :>: pos
+resolveImportedPattern (Located pos _) = E.throwError ("Not implemented", pos)
+
 
 runModuleBundling :: (E.MonadIO m, MonadFail m) => [Located Toplevel] -> m (Either (Text, Position) [Located Toplevel])
 runModuleBundling toplevel =
