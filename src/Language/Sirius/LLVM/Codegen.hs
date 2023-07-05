@@ -11,8 +11,7 @@ import qualified Language.Sirius.CST.Modules.Literal         as L
 import           Language.Sirius.LLVM.Modules.Monad          (LLVM,
                                                               LLVMState (lsAliases, lsEnv, lsStructs),
                                                               fresh)
-import           Language.Sirius.LLVM.Modules.StructDebrujin (toDebrujinStruct)
-import           Language.Sirius.LLVM.Modules.Type           (fromType, toBS)
+import           Language.Sirius.LLVM.Modules.Type           (fromType, toBS, toDebrujinStruct)
 import qualified Language.Sirius.ANF.AST    as T
 import qualified Language.Sirius.Typecheck.Definition.Type   as T
 import qualified LLVM.AST                                    as AST
@@ -24,6 +23,7 @@ import qualified LLVM.AST.Typed                              as AST
 import qualified LLVM.IRBuilder                              as AST
 import qualified LLVM.IRBuilder                              as IRB
 import qualified Data.List as L
+import Language.Sirius.LLVM.Modules.UnionDebrujin (toDebrujinUnion)
 
 string :: LLVM m => String -> m AST.Operand
 string s = do
@@ -45,6 +45,7 @@ declare (T.TFunction (C.Annoted name ret) args _:xs) = do
     ST.modify $ \s -> s {lsEnv = M.insert name name' (lsEnv s)}
   declare xs
 declare (z@T.TStruct {}:xs) = toDebrujinStruct z *> declare xs
+declare (z@T.TUnion {}:xs) = toDebrujinUnion z *> declare xs
 declare (T.TExtern (C.Annoted name ty):xs) = do
   name' <-
     case ty of
@@ -294,6 +295,14 @@ genExpression (T.ELiteral l) =
       s' <- string s
       return (Just s')
 genExpression z@T.EAssembly {} = parseAssembly z
+genExpression (T.EDeclaration name ty) = do
+  ty' <- fromType ty
+  var <- IRB.alloca ty' Nothing 0
+  ST.modify $ \s -> s {lsEnv = M.insert name var (lsEnv s)}
+  return Nothing
+genExpression (T.EInternalField expr f) = do
+  expr' <- fromJust <$> genExpression expr
+  Just <$> IRB.extractValue expr' [fromIntegral f]
 
 genUpdate :: LLVM m => T.UpdateExpression -> m (Maybe AST.Operand)
 genUpdate (T.UVariable name) = do
@@ -330,6 +339,9 @@ genUpdate (T.UIndex expr index') = do
 genUpdate (T.UDereference expr) = do
   expr' <- fromJust <$> genUpdate expr
   Just <$> IRB.load expr' 0
+genUpdate (T.UInternalField expr f) = do
+  expr' <- fromJust <$> genUpdate expr
+  Just <$> IRB.gep expr' [AST.int32 0, AST.int32 (toInteger f)]
 
 parseAssembly :: LLVM m => T.Expression -> m (Maybe AST.Operand)
 parseAssembly (T.EAssembly "gep" (x:ys)) = do

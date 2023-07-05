@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Language.Sirius.LLVM.Modules.StructDebrujin where
+module Language.Sirius.LLVM.Modules.UnionDebrujin where
 
 import qualified Control.Monad.State                      as ST
 import qualified Data.Map                                 as M
@@ -13,11 +13,13 @@ import           LLVM.AST                                 (Type (StructureType))
 import qualified LLVM.AST                                 as AST
 import           LLVM.IRBuilder                           (typedef)
 
-toDebrujinStruct :: LLVM m => T.Toplevel -> m ()
-toDebrujinStruct (T.TStruct name fields) = do
+toDebrujinUnion :: LLVM m => T.Toplevel -> m ()
+toDebrujinUnion (T.TUnion name fields) = do
+  ty <- typedef (AST.Name $ toBS name) Nothing
+  ST.modify $ \s -> s {lsAliases = M.insert name (ty, StructureType False []) (lsAliases s)}
   fieldsTy <- mapM (fromType . C.annotedType) fields
-  ty <- typedef (AST.Name $ toBS name) $ Just $ StructureType False fieldsTy
-  ST.modify $ \s -> s {lsAliases = M.insert name (ty, StructureType False fieldsTy) (lsAliases s)}
+  ty' <- typedef (AST.Name $ toBS $ name) $ Just $ StructureType False fieldsTy
+  ST.modify $ \s -> s {lsAliases = M.insert name (ty', StructureType False fieldsTy) (lsAliases s)}
   ST.modify $ \s ->
     s
       { lsStructs =
@@ -26,4 +28,4 @@ toDebrujinStruct (T.TStruct name fields) = do
             (M.fromList $ zip (map C.annotedName fields) [0 ..])
             (lsStructs s)
       }
-toDebrujinStruct _ = return ()
+toDebrujinUnion _ = return ()

@@ -6,6 +6,10 @@ import qualified LLVM.AST.Type as AST
 import qualified LLVM.AST as AST
 import qualified Control.Monad.State as ST
 import qualified Data.Map as M
+import qualified Language.Sirius.ANF.AST as T
+import qualified Language.Sirius.CST.Modules.Annoted as C
+import LLVM.AST (Type(StructureType))
+import LLVM.IRBuilder (typedef)
 
 toBS :: Text -> ShortByteString
 toBS = fromString . toString
@@ -29,23 +33,35 @@ fromType (args T.:-> ret) = do
   args' <- mapM fromType args
   ret' <- fromType ret
   return $ AST.ptr $ AST.FunctionType ret' args' False
-fromType (T.TApp (T.TId "Union") [T.TId env1, T.TId env2]) = do
-  alias1 <- ST.gets (M.lookup env1 . lsAliases)
-  alias2 <- ST.gets (M.lookup env2 . lsAliases)
-
-  case (alias1, alias2) of
-    (Just (a1, _), Just (a2, _)) -> do
-      struct1 <- ST.gets (M.lookup a1 . lsStructs)
-      struct2 <- ST.gets (M.lookup a2 . lsStructs)
-      return $ if length struct1 > length struct2 
-        then a1
-        else a2
-    _ -> error $ "fromType: union " <> env1 <> " " <> env2 <> " not found"
 fromType (T.TId name) = do
   alias <- ST.gets (M.lookup name . lsAliases)
   case alias of
     Just (alias', _) -> return alias'
     Nothing -> error $ "fromType: alias " <> name <> " not found"
-fromType (T.TRec name _) = return $ AST.NamedTypeReference (AST.Name $ toBS name)
+fromType (T.TRec name f) = do
+  alias <- ST.gets (M.lookup name . lsAliases)
+  case alias of
+    Just (alias', _) -> return alias'
+    Nothing -> do
+      toDebrujinStruct $ T.TStruct name (map (uncurry C.Annoted) f)
+      alias' <- ST.gets (M.lookup name . lsAliases)
+      case alias' of
+        Just (alias'', _) -> return alias''
+        Nothing -> error $ "fromType: alias " <> name <> " not found"
 fromType (T.TList t) = AST.ptr <$> fromType t
 fromType z@(T.TApp _ _) = error $ "fromType: encountered TApp: " <> show z
+
+toDebrujinStruct :: LLVM m => T.Toplevel -> m ()
+toDebrujinStruct (T.TStruct name fields) = do
+  fieldsTy <- mapM (fromType . C.annotedType) fields
+  ty <- typedef (AST.Name $ toBS name) $ Just $ StructureType False fieldsTy
+  ST.modify $ \s -> s {lsAliases = M.insert name (ty, StructureType False fieldsTy) (lsAliases s)}
+  ST.modify $ \s ->
+    s
+      { lsStructs =
+          M.insert
+            ty
+            (M.fromList $ zip (map C.annotedName fields) [0 ..])
+            (lsStructs s)
+      }
+toDebrujinStruct _ = return ()
