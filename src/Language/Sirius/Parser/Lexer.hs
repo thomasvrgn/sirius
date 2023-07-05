@@ -15,7 +15,7 @@ type Parser m a = P.ParsecT Text () m a
 reservedWords :: [String]
 reservedWords =
   [ "let"
-  , "mut"
+  , "ref"
   , "struct"
   , "if"
   , "else"
@@ -31,6 +31,7 @@ reservedWords =
   , "property"
   , "with"
   , "to"
+  , "enum"
   ]
 
 languageDef :: Monad m => Token.GenLanguageDef Text u m

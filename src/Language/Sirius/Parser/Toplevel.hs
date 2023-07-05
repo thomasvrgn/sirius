@@ -15,6 +15,19 @@ parseImport =
     name <- (:) <$> L.identifier <*> P.many (P.string "." *> L.identifier)
     return $ C.TUse name
 
+parseEnumeration :: Monad m => L.Sirius m C.Toplevel
+parseEnumeration =
+  L.lexeme $ do
+    L.reserved "enum"
+    name <- L.identifier
+    gens <- P.option [] $ L.brackets $ L.commaSep L.identifier
+    variants <-
+      L.braces $
+      L.commaSep
+        (C.Annoted <$> L.identifier <*>
+         (P.try (L.parens (L.commaSep T.parseType)) <|> pure []))
+    return $ C.TEnumeration (C.Annoted name gens) variants
+
 parseProperty :: Monad m => L.Sirius m C.Toplevel
 parseProperty =
   L.lexeme $ do
@@ -113,15 +126,18 @@ parseAnnotation :: Monad m => L.Sirius m C.Expression -> L.Sirius m C.Toplevel
 parseAnnotation e =
   L.lexeme $ do
     L.reserved "with"
-    name <- fromString <$> many (P.letter <|> P.digit <|> P.char '_' <|> P.char '.' <|> P.char '-') <* L.whiteSpace
+    name <-
+      fromString <$>
+      many (P.letter <|> P.digit <|> P.char '_' <|> P.char '.' <|> P.char '-') <*
+      L.whiteSpace
     C.TAnnotation name <$> parseToplevel e
-    
 
 parseToplevel :: Monad m => L.Sirius m C.Expression -> L.Sirius m C.Toplevel
 parseToplevel p =
   P.choice
     [ parseImport
     , parseAnnotation p
+    , parseEnumeration
     , P.try $ parsePropFunction p
     , parseFunction p
     , P.try parseStructInlined
@@ -129,7 +145,8 @@ parseToplevel p =
     , P.try parseExternFn
     , parseExternVar
     , parseProperty
-    ] <* P.optionMaybe L.semi
+    ] <*
+  P.optionMaybe L.semi
 
 parseToplevels ::
      Monad m => L.Sirius m C.Expression -> L.Parser m [C.Located C.Toplevel]
