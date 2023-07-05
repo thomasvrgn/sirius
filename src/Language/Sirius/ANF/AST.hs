@@ -24,12 +24,15 @@ data Expression
   | EFor Text Expression Expression [Expression]
   | ELet (C.Annoted Type) Expression
   | EUpdate UpdateExpression Expression
+  | EDeclaration Text Type
+  | EInternalField Expression Int
   deriving Show
 
 data Toplevel
   = TFunction (Annoted Type) [Annoted Type] Expression
   | TExtern (Annoted Type)
   | TStruct Text [Annoted Type]
+  | TUnion Text [C.Annoted Type]
   deriving Show
 
 data UpdateExpression 
@@ -37,4 +40,5 @@ data UpdateExpression
   | UProperty UpdateExpression Text
   | UIndex UpdateExpression Expression
   | UDereference UpdateExpression
+  | UInternalField UpdateExpression Int
   deriving Show

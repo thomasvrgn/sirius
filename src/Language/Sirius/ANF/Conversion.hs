@@ -99,6 +99,11 @@ convertExpression (C.EFor (C.Annoted name _) start end body) = do
   return
     ( ANF.EFor name (fst start') (fst end') (concat stmts')
     , snd start' ++ snd end')
+convertExpression (C.EDeclaration name ty) = do
+  return (ANF.EDeclaration name ty, [])
+convertExpression (C.EInternalField expr field) = do
+  (expr', stmts) <- convertExpression expr
+  return (ANF.EInternalField expr' field, stmts)
 convertExpression _ = error "TODO: convertExpression"
 
 convertUpdate :: MonadANF m => C.UpdateExpression -> m ANF.UpdateExpression
@@ -113,6 +118,9 @@ convertUpdate (C.UIndex expr index) = do
 convertUpdate (C.UDereference expr) = do
   expr' <- convertUpdate expr
   return (ANF.UDereference expr')
+convertUpdate (C.UInternalField expr field) = do
+  expr' <- convertUpdate expr
+  return (ANF.UInternalField expr' field)
 
 convertToplevel :: MonadANF m => C.Toplevel -> m ANF.Toplevel
 convertToplevel (C.TFunction _ (C.Annoted name' t) args body) = do
@@ -126,4 +134,6 @@ convertToplevel (C.TStruct (C.Annoted name' _) fields) = do
   let fields' = map (\(C.Annoted name'' t') -> C.Annoted name'' t') fields
   return (ANF.TStruct name' fields')
 convertToplevel (C.TExtern _ t) = return (ANF.TExtern t)
+convertToplevel (C.TEnumeration _ _) = error "TODO: convertToplevel"
+convertToplevel (C.TUnion name fields) = return $ ANF.TUnion name fields
 convertToplevel _ = error "TODO: convertToplevel"

@@ -132,6 +132,7 @@ findStruct name = do
     find
       (\case
          A.TStruct (C.Annoted name'' _) _ -> name'' == name'
+         A.TEnumeration (C.Annoted name'' _) _ -> name'' == name'
          _                                -> False)
       m
 
@@ -307,6 +308,12 @@ monoExpr (A.EAssembly op exprs) = do
 monoExpr (A.ELocated expr _) = monoExpr expr
 monoExpr A.EVariable {} = error "COMPILER ERROR: EVariable should not be in the AST at this point"
 monoExpr A.EClassVariable {} = error "COMPILER ERROR: EClassVariable should not be in the AST at this point"
+monoExpr (A.EInternalField expr f) = do
+  expr' <- monoExpr expr
+  return $ A.EInternalField expr' f
+monoExpr (A.EDeclaration name ty) = do
+  ty' <- monoType ty
+  return $ A.EDeclaration name ty'
 
 monoUpdate :: MonadMono m => A.UpdateExpression -> m A.UpdateExpression
 monoUpdate (A.UVariable name ty) = do
@@ -324,6 +331,10 @@ monoUpdate (A.UIndex expr index) = do
 monoUpdate (A.UProperty expr field) = do
   expr' <- monoUpdate expr
   return $ A.UProperty expr' field
+monoUpdate (A.UInternalField expr field) = do
+  expr' <- monoUpdate expr
+  return $ A.UInternalField expr' field
+
 
 runMonomorphizationPass :: Monad m => [A.Toplevel] -> Checker.CheckerState -> m (Either (Text, Maybe Text, C.Position) [A.Toplevel])
 runMonomorphizationPass xs c = do
@@ -359,6 +370,17 @@ monoType z@(T.TId n) = do
                     (mstTypeDefs s)
               }
           return $ T.TId n
+        Just (A.TEnumeration (C.Annoted _ _) xs') -> do
+          ST.modify $ \s -> s {mstTypes = M.insert z n (mstTypes s)}
+          ST.modify $ \s ->
+            s
+              { mstTypeDefs =
+                  M.insert
+                    n
+                    (A.TEnumeration (C.Annoted n []) xs')
+                    (mstTypeDefs s)
+              }
+          return $ T.TId n
         _ -> return z
 monoType z@(T.TApp n args) = do
   m <- ST.gets mstTypes
@@ -372,7 +394,7 @@ monoType z@(T.TApp n args) = do
           let gens' = map (\(T.TVar name'') -> name'') gens
           let sub = M.fromList $ zip gens' args
           let subName = name' <> "_" <> L.intercalate "_" (map show args)
-          ST.modify $ \s -> s {mstTypes = M.insert n subName (mstTypes s)}
+          ST.modify $ \s -> s {mstTypes = M.insert z subName (mstTypes s)}
           fields' <-
             mapM
               (\(C.Annoted name'' ty) ->
@@ -384,6 +406,25 @@ monoType z@(T.TApp n args) = do
                   M.insert
                     subName
                     (A.TStruct (C.Annoted subName []) fields')
+                    (mstTypeDefs s)
+              }
+          return $ T.TId subName
+        Just (A.TEnumeration (C.Annoted name' gens) xs') -> do
+          let gens' = map (\(T.TVar name'') -> name'') gens
+          let sub = M.fromList $ zip gens' args
+          let subName = name' <> "_" <> L.intercalate "_" (map show args)
+          ST.modify $ \s -> s {mstTypes = M.insert z subName (mstTypes s)}
+          fields' <-
+            mapM
+              (\(C.Annoted name'' ty) ->
+                C.Annoted name'' <$> monoType (Sub.apply sub ty))
+              xs'
+          ST.modify $ \s ->
+            s
+              { mstTypeDefs =
+                  M.insert
+                    subName
+                    (A.TEnumeration (C.Annoted subName []) fields')
                     (mstTypeDefs s)
               }
           return $ T.TId subName

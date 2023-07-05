@@ -75,6 +75,8 @@ substUpdate (A.UProperty e n) name expr =
   A.UProperty (substUpdate e name expr) n
 substUpdate (A.UDereference e) name expr =
   A.UDereference (substUpdate e name expr)
+substUpdate (A.UInternalField e n) name expr =
+  A.UInternalField (substUpdate e name expr) n
 
 substBlock :: [A.Expression] -> Text -> A.Expression -> [A.Expression]
 substBlock (A.ELet n@(C.Annoted name _) e body t:rest) name' expr =
@@ -352,6 +354,11 @@ convertExpression (A.ELocated e _) = convertExpression e
 convertExpression (A.EAssembly op args) = do
   (args', stmts, _) <- unzip3 <$> mapM convertExpression args
   return (A.EAssembly op args', concat stmts, Nothing)
+convertExpression (A.EDeclaration n t) = do
+  return (A.EDeclaration n t, [], Nothing)
+convertExpression (A.EInternalField expr t) = do
+  (expr', stmts, _) <- convertExpression expr
+  return (A.EInternalField expr' t, stmts, Nothing)
 
 convertToplevel :: MonadClosure m => A.Toplevel -> m ()
 convertToplevel (A.TFunction n ret args body) = do
@@ -365,5 +372,9 @@ convertToplevel (A.TStruct n fields) = RWS.tell [A.TStruct n fields]
 convertToplevel (A.TExtern gens (C.Annoted name ty)) = do
   addExcluded name ty
   RWS.tell [A.TExtern gens (C.Annoted name ty)]
+convertToplevel (A.TEnumeration n fields) = do
+  mapM_ (\(C.Annoted name ty) -> addExcluded name ty) fields
+  RWS.tell [A.TEnumeration n fields]
+convertToplevel (A.TUnion n fields) = RWS.tell [A.TUnion n fields]
 convertToplevel A.TFunctionProp {} =
   error "Should not encounter function properties during closure conversion."

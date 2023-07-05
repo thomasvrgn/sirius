@@ -48,6 +48,7 @@ instance Free Expression where
   free (ESizeOf _) = S.empty
   free (EAssembly _ xs) = free xs
   free (ELocated e _) = free e
+  free (EInternalField x _) = free x
   free _ = S.empty
 
 instance Free UpdateExpression where
@@ -55,6 +56,7 @@ instance Free UpdateExpression where
   free (UIndex arr idx) = free arr `S.union` free idx
   free (UProperty x _) = free x
   free (UDereference x) = free x
+  free (UInternalField x _) = free x
 
 instance Free Toplevel where
   free (TFunction _ name args body) = free body S.\\ S.fromList (name:args)
