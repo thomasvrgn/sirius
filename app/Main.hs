@@ -10,6 +10,7 @@ import Language.Sirius.Module.Bundler (runModuleBundling)
 import Language.Sirius.ANF (runANFPass)
 import Language.Sirius.Memory (runMemoryPass)
 import Language.Sirius.Module.Resolver (runModuleResolver)
+import Language.Sirius.Enumeration (convertEnumeration)
 
 main :: IO ()
 main = do
@@ -34,6 +35,8 @@ main = do
                   case res'' of
                     Right res'' -> do
                       res'' <- runClosureConversionPass res''
+                      res'' <- concat <$> mapM convertEnumeration res''
+                      mapM_ print res''
                       res'' <- runANFPass res''
                       -- mapM_ print res''
                       content <- getLLContent res''
