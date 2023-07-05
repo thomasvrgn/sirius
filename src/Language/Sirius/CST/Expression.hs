@@ -147,6 +147,28 @@ data Expression
   -- ^ EAssembly denotes an assembly expression
   --   The first argument is the assembly code
   --   The second argument is a list of arguments
+  | EMatch (Located Expression) [Match]
+  deriving (Eq, Show)
+
+type Match = (Located Pattern, Located Expression)
+
+data Pattern
+  = PVariable Namespaced
+  -- ^ PVariable denotes a variable
+  --   The argument is the name of the variable
+  | PWildcard
+  -- ^ PWildcard denotes a wildcard
+  | PLiteral Literal
+  -- ^ PLiteral denotes a literal
+  --   The argument is the literal
+  | PStruct Type [Annoted (Located Pattern)]
+  -- ^ PStruct denotes a struct
+  --   The first argument is a list of generic type variables
+  --   The second argument is a list of fields
+  | PApp Namespaced [Located Pattern]
+  -- ^ PApp denotes a constructor application
+  --   The first argument is the name of the constructor
+  --   The second argument is a list of arguments
   deriving (Eq, Show)
 
 data UpdateExpression
