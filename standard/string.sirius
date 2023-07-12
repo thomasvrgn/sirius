@@ -1,0 +1,3 @@
+extern strlen(text: String): Int;
+fn (c: String) len(): Int = strlen(c);
+extern strcmp(a: String, b: String): Int;
