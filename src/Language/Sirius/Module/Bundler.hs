@@ -225,7 +225,7 @@ resolveImportedExpressions (EAssembly op exprs :>: pos) = do
   return $ EAssembly op exprs' :>: pos
 resolveImportedExpressions (EMatch expr cases :>: pos) = do
   expr' <- resolveImportedExpressions expr
-  cases' <- mapM (\(pat, expr) -> (,) <$> resolveImportedPattern pat <*> resolveImportedExpressions expr) cases
+  cases' <- mapM (\(pat, expr) -> local id $ (,) <$> resolveImportedPattern pat <*> resolveImportedExpressions expr) cases
   return $ EMatch expr' cases' :>: pos
 resolveImportedExpressions (Located pos _) = E.throwError ("Not implemented", pos)
 
@@ -252,7 +252,9 @@ resolveImportedPattern (PVariable name :>: pos) = do
   mappings' <- ST.gets mappings
   case M.lookup (makeName name) mappings' of
     Just name' -> return $ PVariable (D.Simple name') :>: pos
-    Nothing -> return $ PVariable name :>: pos
+    Nothing -> do
+      ST.modify (\s -> s { mappings = M.insert (makeName name) (makeName name) (mappings s) })
+      return $ PVariable name :>: pos
 resolveImportedPattern (PStruct n fields :>: pos) = do
   n' <- resolveImportedType n pos
   fields' <- mapM (\(C.Annoted name pat) -> C.Annoted name <$> resolveImportedPattern pat) fields
@@ -267,7 +269,6 @@ resolveImportedPattern (PApp name pats :>: pos) = do
 resolveImportedPattern (PWildcard :>: pos) = return (PWildcard :>: pos)
 resolveImportedPattern (PLiteral l :>: pos) = return $ PLiteral l :>: pos
 resolveImportedPattern (Located pos _) = E.throwError ("Not implemented", pos)
-
 
 runModuleBundling :: (E.MonadIO m, MonadFail m) => [Located Toplevel] -> m (Either (Text, Position) [Located Toplevel])
 runModuleBundling toplevel =
