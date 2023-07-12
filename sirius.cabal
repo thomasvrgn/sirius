@@ -74,6 +74,7 @@ library
         Language.Sirius.Parser.Modules.Literal
         Language.Sirius.Parser.Modules.Type
         Language.Sirius.Parser.Modules.Operators
+        Language.Sirius.Parser.Modules.Pattern
       Language.Sirius.Parser.Toplevel
 
     Language.Sirius.Module.Bundler
@@ -98,6 +99,7 @@ library
       Language.Sirius.ANF.AST
       Language.Sirius.ANF.Monad
       Language.Sirius.ANF.Conversion
+      Language.Sirius.ANF.MatchRemover
 
     Language.Sirius.Closure
       Language.Sirius.Closure.Monad
