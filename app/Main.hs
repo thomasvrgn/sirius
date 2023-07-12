@@ -8,7 +8,6 @@ import Language.Sirius.Closure (runClosureConversionPass)
 import Language.Sirius.LLVM (runCompilerPass, getLLContent)
 import Language.Sirius.Module.Bundler (runModuleBundling)
 import Language.Sirius.ANF (runANFPass)
-import Language.Sirius.Memory (runMemoryPass)
 import Language.Sirius.Module.Resolver (runModuleResolver)
 import Language.Sirius.Enumeration (convertEnumeration)
 
@@ -36,9 +35,7 @@ main = do
                     Right res'' -> do
                       res'' <- runClosureConversionPass res''
                       res'' <- concat <$> mapM convertEnumeration res''
-                      mapM_ print res''
                       res'' <- runANFPass res''
-                      -- mapM_ print res''
                       content <- getLLContent res''
                       writeFileBS "out.ll" content
                       runCompilerPass res''
