@@ -7,6 +7,8 @@ enum LinkedList[a] {
   Cons(a, ref LinkedList[a])
 }
 
+type Test[a] = ref LinkedList[a];
+
 fn (c: String) ==(other: String): Bool = strcmp(c, other) == 0;
 
 fn (c: a) typeOf[a](): String = asm "extractvalue" (asm "extractvalue" c 0) 0;
@@ -44,7 +46,10 @@ fn (c: Unit) show(): String = "Unit";
 fn main(): Int = {
   // print(Cons(5, ref Nil));
   print(test("bruh")());
-  print(Cons(5, ref Cons(4, ref Cons(3, ref Nil))).len());
+  
+  let x: Test[Int] = ref Nil;
+
+  print(Cons(5, ref Cons(4, ref Cons(3, x))).len());
   print(Unit);
   0
 }
