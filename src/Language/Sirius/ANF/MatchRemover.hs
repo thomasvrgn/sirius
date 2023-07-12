@@ -13,7 +13,7 @@ pattern EBinary op a b = ANF.EApplication op [a, b]
 
 findEnumerationByVariant :: [ANF.Toplevel] -> Text -> Maybe Int
 findEnumerationByVariant xs name = do
-  findMatch name xs
+  findMatch (name <> "_variant") xs
   where
     findMatch :: Text -> [ANF.Toplevel] -> Maybe Int
     findMatch _ [] = Nothing
