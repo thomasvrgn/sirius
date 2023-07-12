@@ -4,6 +4,7 @@ import qualified Language.Sirius.CST.Modules.Annoted       as C
 import qualified Language.Sirius.Typecheck.Definition.AST  as A
 import qualified Language.Sirius.Typecheck.Definition.Type as T
 import Data.Text (toLower)
+import qualified Language.Sirius.CST.Modules.Literal as C
 
 convertEnumeration :: Monad m => A.Toplevel -> m [A.Toplevel]
 convertEnumeration (A.TEnumeration (C.Annoted name _) types) = do
@@ -15,7 +16,7 @@ convertEnumeration (A.TEnumeration (C.Annoted name _) types) = do
         A.TUnion
           name
           (zipWith
-             (\(C.Annoted name' _) (name'', fields') -> C.Annoted (toLower name') (T.TRec name'' fields'))
+             (\(C.Annoted name' _) (name'', fields') -> C.Annoted (toLower name') (T.TRec name'' (("type", T.TString) : fields')))
              types fields)
   let functions =
         zipWith
@@ -26,10 +27,10 @@ convertEnumeration (A.TEnumeration (C.Annoted name _) types) = do
                (map (uncurry C.Annoted) $ createFields ty)
                (A.EBlock [
                 A.EDeclaration "v" (T.TId name),
-                A.EUpdate (A.UInternalField (A.UVariable "v" (T.TId name)) i) (A.EStruct (T.TId name') (map (\(name'', t) -> C.Annoted name'' (A.EVariable name'' t)) (createFields ty))),
+                A.EUpdate (A.UInternalField (A.UVariable "v" (T.TId name)) i) (A.EStruct (T.TId name') (C.Annoted "type" (A.ELiteral (C.String $ toString name')) : map (\(name'', t) -> C.Annoted name'' (A.EVariable name'' t)) (createFields ty))),
                 A.EVariable "v" (T.TId name)
                ]))
           types
-          [0 .. length types]
+          (replicate (length types) 0)
   return $ union : functions
 convertEnumeration x = return [x]
