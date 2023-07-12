@@ -13,6 +13,7 @@ import qualified System.Directory as IO
 import qualified System.Process as IO
 import System.FilePath
 import qualified Language.Sirius.ANF.AST as ANF
+import qualified LLVM.AST.Type as AST
 
 findCompiler :: [String] -> IO (Maybe String)
 findCompiler [] = return Nothing
@@ -28,8 +29,8 @@ runLLVM :: MonadFail m => [ANF.Toplevel] -> m AST.Module
 runLLVM xs =
   ST.evalStateT
     (IRB.buildModuleT "main" $
-     IRB.runIRBuilderT IRB.emptyIRBuilder (declare xs *> mapM genToplevel xs))
-    (LLVMState 0 M.empty M.empty M.empty)
+     IRB.runIRBuilderT IRB.emptyIRBuilder (IRB.externVarArgs "printf" [AST.ptr AST.i8] AST.void *> declare xs *> mapM genToplevel xs))
+    (LLVMState 0 M.empty M.empty M.empty M.empty)
 
 getLLContent :: [ANF.Toplevel] -> IO ByteString
 getLLContent xs = do
@@ -58,6 +59,6 @@ runCompilerPass xs = do
     Just compiler' -> do
       content <- runLLVMPass xs
       writeFileText "main.s" content
-      IO.callProcess compiler' ["-o", "main", "main.s", pathToLib </> "lib.c"]
+      IO.callProcess compiler' ["-o", "main", "main.s", pathToLib </> "lib.c", "-g"]
     Nothing -> error "No compiler found"
   
