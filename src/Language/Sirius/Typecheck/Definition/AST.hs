@@ -80,7 +80,7 @@ data Expression
   --   The first argument is the name of the variable
   --   The second argument is the value of the variable
   --   The third argument is the body of the let binding
-  | EIf Expression [Expression] [Expression]
+  | EIf Expression [Expression] [Expression] Type
   -- ^ EIf denotes an if expression
   --   The first argument is the condition
   --   The second argument is the then branch
@@ -88,7 +88,7 @@ data Expression
   | ELiteral Literal
   -- ^ ELiteral denotes a literal
   --   The argument is the literal
-  | EProperty Expression Name
+  | EProperty Expression Name (Maybe Type)
   -- ^ EProperty denotes a property access
   --   The first argument is the object
   --   The second argument is the name of the property
@@ -132,7 +132,7 @@ data Expression
   | ESizeOf Type
   -- ^ ESizeOf denotes a sizeof expression
   --   The argument is the type
-  | EAssembly Text [Expression]
+  | EAssembly (Text, Type) [Expression]
   -- ^ EAssembly denotes an assembly expression
   --   The first argument is the assembly code
   --   The second argument is a list of arguments
@@ -140,14 +140,14 @@ data Expression
   -- ^ EDeclaration denotes a declaration
   --   The first argument is the name of the declaration
   --   The second argument is the type of the declaration
-  | EInternalField Expression Int
+  | EInternalField Expression Int (Maybe Type)
   -- ^ EInternalField denotes an internal field access
   --   The first argument is the object
   --   The second argument is the index of the field
-  | EMatch Expression [MatchCase]
+  | EMatch (Expression, Type) [MatchCase]
   deriving (Eq)
 
-type MatchCase = (Pattern, Expression)
+type MatchCase = (Pattern, Expression, Type)
 
 data Pattern
   = PVariable Name Type
@@ -225,12 +225,12 @@ instance T.Show Expression where
     T.show function ++ "(" ++ L.intercalate ", " (map T.show arguments) ++ ")"
   show (ELet name value body _) =
     "let " ++ T.show name ++ " = " ++ T.show value ++ " in " ++ T.show body
-  show (EIf condition thenBranch elseBranch) =
+  show (EIf condition thenBranch elseBranch _) =
     "if " ++
     T.show condition ++
     " then " ++ T.show thenBranch ++ " else " ++ T.show elseBranch
   show (ELiteral literal) = T.show literal
-  show (EProperty object name) = T.show object ++ "." ++ toString name
+  show (EProperty object name _) = T.show object ++ "." ++ toString name
   show (EFunction _ arguments body) =
     "fn " ++ T.show arguments ++ " => " ++ T.show body
   show (EStruct n fields) = T.show n ++ " {" ++ T.show fields ++ "}"
@@ -250,17 +250,17 @@ instance T.Show Expression where
     "while " ++ T.show condition ++ " " ++ T.show body
   show (ESizeOf t) = "sizeof(" ++ T.show t ++ ")"
   show (ELocated expression _) = T.show expression
-  show (EAssembly code arguments) =
+  show (EAssembly (code, _) arguments) =
     "asm(" ++ toString code ++ ", " ++ T.show arguments ++ ")"
   show (EDeclaration name t) = "declare " ++ toString name ++ ": " ++ T.show t
-  show (EInternalField object index) =
+  show (EInternalField object index _) =
     T.show object ++ "." ++ show index
-  show (EMatch expression cases) =
+  show (EMatch (expression, _) cases) =
     "match " ++
     T.show expression ++
     " {" ++ L.unwords (map showCase cases) ++ "}"
     where
-      showCase (pattern, expression') =
+      showCase (pattern, expression', _) =
         T.show pattern ++ " => " ++ T.show expression'
         
 instance T.Show Pattern where

@@ -122,10 +122,10 @@ instance Types Expression where
   free (EBlock xs) = free xs
   free (EList es t) = free es `S.union` free t
   free (EIndex e i) = free e `S.union` free i
-  free (EIf e1 e2 e3) = free e1 `S.union` free e2 `S.union` free e3
+  free (EIf e1 e2 e3 t) = free e1 `S.union` free e2 `S.union` free e3 `S.union` free t
   free (EUpdate x e) = free x `S.union` free e
   free (EStruct n xs) = free n `S.union` free xs
-  free (EProperty e _) = free e
+  free (EProperty e _ t) = free e `S.union` free t
   free (EClassVariable _ t app) = free t `S.union` free app
   free (EReference e) = free e
   free (ELiteral _) = S.empty
@@ -137,7 +137,7 @@ instance Types Expression where
   free (EAssembly _ args) = free args
   free (EDeclaration _ t) = free t
   free (EMatch e xs) = free e `S.union` free xs
-  free (EInternalField e _) = free e
+  free (EInternalField e _ t) = free e `S.union` free t
 
   apply s (EVariable name t) = EVariable name $ apply s t
   apply s (EApplication f xs t) = EApplication (apply s f) (apply s xs) (apply s t)
@@ -147,11 +147,11 @@ instance Types Expression where
   apply s (EBlock xs) = EBlock $ apply s xs
   apply s (EList es t) = EList (apply s es) (apply s t)
   apply s (EIndex e i) = EIndex (apply s e) $ apply s i
-  apply s (EIf e1 e2 e3) = EIf (apply s e1) (apply s e2) $ apply s e3
+  apply s (EIf e1 e2 e3 t) = EIf (apply s e1) (apply s e2) (apply s e3) (apply s t)
   apply s (EUpdate x e) = EUpdate (apply s x) $ apply s e
   apply _ (ELiteral l) = ELiteral l
   apply s (EStruct n fields) = EStruct (apply s n) $ apply s fields
-  apply s (EProperty e f) = EProperty (apply s e) f
+  apply s (EProperty e f t) = EProperty (apply s e) f (apply s t)
   apply s (EClassVariable name t app) = EClassVariable name (apply s t) (apply s app)
   apply s (EDereference e) = EDereference $ apply s e
   apply s (EReference e) = EReference $ apply s e
@@ -160,10 +160,10 @@ instance Types Expression where
     EFor (apply s name) (apply s e1) (apply s e2) $ apply s e3
   apply s (ESizeOf t) = ESizeOf $ apply s t
   apply s (ELocated e pos) = ELocated (apply s e) pos
-  apply s (EAssembly op es) = EAssembly op $ apply s es
+  apply s (EAssembly op es) = EAssembly (apply s op) $ apply s es
   apply s (EDeclaration name t) = EDeclaration name (apply s t)
   apply s (EMatch e xs) = EMatch (apply s e) $ apply s xs
-  apply s (EInternalField e f) = EInternalField (apply s e) f
+  apply s (EInternalField e f t) = EInternalField (apply s e) f (apply s t)
 
 instance Types UpdateExpression where
   free (UVariable _ e) = free e
@@ -177,6 +177,10 @@ instance Types UpdateExpression where
   apply s (UProperty x f)      = UProperty (apply s x) f
   apply s (UDereference x)     = UDereference $ apply s x
   apply s (UInternalField x f) = UInternalField (apply s x) f
+
+instance (Types a, Types b, Types c) => Types (a, b, c) where
+  free (a, b, c) = free a `S.union` free b `S.union` free c
+  apply s (a, b, c) = (apply s a, apply s b, apply s c)
 
 instance Types Pattern where
   free (PVariable _ t) = free t
