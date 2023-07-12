@@ -33,6 +33,7 @@ data CheckerState =
     , returnType  :: T.Type
     , classes     :: M.Map (T.Type, Text) T.Scheme
     , staticFns   :: M.Map (T.Type, Text) T.Scheme
+    , aliases     :: M.Map Text T.Scheme
     }
   
 instance Semigroup CheckerState where
@@ -46,6 +47,7 @@ instance Semigroup CheckerState where
       , returnType = if returnType s1 == T.Void then returnType s2 else returnType s1
       , classes = classes s1 `M.union` classes s2
       , staticFns = staticFns s1 `M.union` staticFns s2
+      , aliases = aliases s1 `M.union` aliases s2
       }
 
 instance Monoid CheckerState where
@@ -59,6 +61,7 @@ instance Monoid CheckerState where
       , returnType = T.Void
       , classes = mempty
       , staticFns = mempty
+      , aliases = mempty
       }
 
 union' :: Envs -> Envs -> Envs

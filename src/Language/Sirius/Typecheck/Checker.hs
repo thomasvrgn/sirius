@@ -495,6 +495,19 @@ inferToplevel (C.Located _ (C.TEnumeration (C.Annoted name gens) variants)) = do
   let tys = map (second (T.Forall gens'')) variants''
   ST.modify $ \s -> s {M.types = M.union (M.types s) (M.fromList tys)}
   return (T.Void, Just $ A.TEnumeration (C.Annoted name generics'') variants')
+inferToplevel (C.Located _ (C.TTypeAlias (C.Annoted name gens) ty)) = do
+  generics'' <- mapM (const fresh) gens
+  let generics''' = M.fromList $ zip gens generics''
+  ty' <- P.toWithEnv ty generics'''
+  let gens' =
+        map
+          (\case
+             (T.TVar i) -> i
+             _          -> (-1))
+          generics''
+  let ty'' = T.Forall gens' ty'
+  ST.modify $ \s -> s {M.aliases = M.insert name ty'' (M.aliases s)}
+  return (T.Void, Nothing)
 inferToplevel (C.Located pos _) =
   E.throwError ("Invalid toplevel", Nothing, pos)
 
