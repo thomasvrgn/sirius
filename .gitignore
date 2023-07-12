@@ -1,7 +1,10 @@
-a.out.*
-a.out
+*.out
 
-out.s
+main
+
+*.dSYM
+
+*.s
 *.c
 *.ll
 
