@@ -407,6 +407,13 @@ genUpdate (T.UInternalField expr _) = do
   Just <$> IRB.gep expr' [AST.int32 0, AST.int32 0]
 
 parseAssembly :: LLVM m => T.Expression -> m (Maybe AST.Operand)
+parseAssembly (T.EAssembly "alloca" ((T.ESizeOf t):i:_)) = do
+  t' <- fromType t
+  i' <- genExpression i
+  Just <$> IRB.alloca t' i' 0
+parseAssembly (T.EAssembly "alloca" ((T.ESizeOf t):_)) = do
+  t' <- fromType t
+  Just <$> IRB.alloca t' Nothing 0
 parseAssembly (T.EAssembly "extractvalue" (x:(T.ELiteral (L.Int i)):_)) = do
   x' <- fromJust <$> genExpression x
   Just <$> IRB.extractValue x' [fromIntegral i]
