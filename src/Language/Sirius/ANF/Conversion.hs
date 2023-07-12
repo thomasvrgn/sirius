@@ -1,4 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Language.Sirius.ANF.Conversion where
 
@@ -8,8 +10,9 @@ import           Language.Sirius.ANF.Monad                 (MonadANF, createLet,
 import qualified Language.Sirius.CST.Modules.Annoted       as C
 import qualified Language.Sirius.Typecheck.Definition.AST  as C
 import qualified Language.Sirius.Typecheck.Definition.Type as T
-import Data.Maybe (fromJust)
 import qualified Data.List as L
+import Language.Sirius.ANF.MatchRemover (findPattern, pattern EBinary)
+import qualified Language.Sirius.CST.Modules.Literal as C
 
 convertExpression ::
      MonadANF m => C.Expression -> m (ANF.Expression, [(C.Annoted T.Type, ANF.Expression)])
@@ -21,32 +24,34 @@ convertExpression (C.EVariable name' _) = do
     Nothing   -> return (ANF.EVariable name', [])
 convertExpression (C.EApplication call args t) = do
   call' <- convertExpression call
-  callName <- fresh
   args' <- mapM convertExpression args
-  let name = case call' of
-        (ANF.EVariable name', _) -> name'
-        _                       -> error "TODO: Application with non-variable"
-  return
-    ( ANF.EVariable callName
-    , snd call' ++ concatMap snd args' ++ [(C.Annoted callName t, ANF.EApplication name (map fst args'))])
-convertExpression (C.EIf cond th el) = do
+  case call' of
+    (ANF.EVariable name , _)-> do
+      let args'' = map fst args'
+      let stmts = concatMap snd args'
+      return (ANF.EApplication name args'', stmts)
+    _ -> do
+      callName <- fresh
+      return
+        ( ANF.EApplication callName (map fst args')
+        , concatMap snd args' ++ [(C.Annoted callName t, fst call') ])
+convertExpression (C.EIf cond th el t) = do
   cond' <- convertExpression cond
   th' <-  mapM convertExpression th
   let th'' = concatMap (\(e, stmts) -> createLet stmts ++ [e]) th'
   el' <- mapM convertExpression el
   let el'' = concatMap (\(e, stmts) -> createLet stmts ++ [e]) el'
   return
-    ( ANF.EIf (fst cond') th'' el''
+    ( ANF.EIfElse (fst cond') th'' el'' t
     , snd cond')
-convertExpression (C.ELet n e1 e2 t) = do
+convertExpression (C.ELet n e1 e2 _) = do
   (e1', stmts2) <- convertExpression e1
   case e2 of
     Just e2' -> do
-      bodyName <- fresh
-      (e2'', stmts3) <- local ((C.annotedName n, bodyName):) $ convertExpression e2'
-      return (ANF.ELet n e1', stmts2 ++ stmts3 ++ [(C.Annoted bodyName (fromJust t), e2'')])
+      (e2'', stmts3) <- convertExpression e2'
+      return (e2'',  stmts2 ++ [(n, e1')] ++ stmts3)
     Nothing -> return (ANF.ELet n e1', stmts2)
-convertExpression (C.EProperty expr field) = do
+convertExpression (C.EProperty expr field _) = do
   (expr', stmts) <- convertExpression expr
   return (ANF.EProperty expr' field, stmts)
 convertExpression (C.EStruct n fields) = do
@@ -83,7 +88,7 @@ convertExpression (C.EReference expr) = do
   (expr', stmts) <- convertExpression expr
   return (ANF.EReference expr', stmts)
 convertExpression (C.ESizeOf t) = return (ANF.ESizeOf t, [])
-convertExpression (C.EAssembly name args) = do
+convertExpression (C.EAssembly (name, _) args) = do
   (args', stmts) <- unzip <$> mapM convertExpression args
   return (ANF.EAssembly name args', concat stmts)
 convertExpression (C.EWhile cond body) = do
@@ -101,9 +106,41 @@ convertExpression (C.EFor (C.Annoted name _) start end body) = do
     , snd start' ++ snd end')
 convertExpression (C.EDeclaration name ty) = do
   return (ANF.EDeclaration name ty, [])
-convertExpression (C.EInternalField expr field) = do
+convertExpression (C.EInternalField expr field _) = do
   (expr', stmts) <- convertExpression expr
   return (ANF.EInternalField expr' field, stmts)
+convertExpression (C.EMatch (expr, ty) cases) = do
+  (expr', stmts) <- convertExpression expr
+  let decl = ANF.ELet (C.Annoted "$$match$$" ty) expr'
+  let var = ANF.EVariable "$$match$$"
+  tls <- gets snd
+  let cases' = map (\(pat, body, t) -> (findPattern tls pat var, body, t)) cases
+  (bodys, stmts') <- unzip <$> mapM (\(_, body, _) -> convertExpression body) cases'
+  let cases'' = zip (map (\(e, _, t) -> (e, t)) cases') bodys
+  let tys = map (\(_, _, t) -> t) cases'
+  let ifs = case cases'' of
+          [] -> error "TODO: Match with no cases"
+          (x:xs) -> map (\((pats, _), body) -> do
+                -- Unwrapping current case to get declarations and conditions
+                let (decls, conds) = unzip pats
+                let decls' = concatMap (\case
+                      Just x' -> [x']
+                      Nothing -> []) decls
+                let conds' = concatMap (\case
+                      Just x' -> [x']
+                      Nothing -> []) conds
+
+                if null conds' then
+                  \_ -> case body of
+                    ANF.EBlock body' -> ANF.EBlock (decls' ++ body')
+                    _ -> ANF.EBlock (decls' ++ [body])
+                else
+                  \e -> ANF.EIfElse (L.foldl1 (EBinary "&&") conds') (case body of
+                    ANF.EBlock body' -> decls' ++ body'
+                    _ -> decls' ++ [body]) [e] (T.TApp (T.TId "$$Either") tys)
+              ) (x:xs)
+  let ifs' = L.foldr (\f acc -> f acc) (ANF.EApplication "panic" [ANF.ELiteral (C.String "Unhandled case in pattern matching")]) ifs
+  return (ANF.EBlock [decl, ifs'], stmts ++ concat stmts')
 convertExpression _ = error "TODO: convertExpression"
 
 convertUpdate :: MonadANF m => C.UpdateExpression -> m ANF.UpdateExpression
@@ -131,9 +168,12 @@ convertToplevel (C.TFunction _ (C.Annoted name' t) args body) = do
           _                -> ANF.EBlock (createLet stmts ++ [body'])
   return (ANF.TFunction (C.Annoted name' t) args body'')
 convertToplevel (C.TStruct (C.Annoted name' _) fields) = do
+  modify $ \s -> second (ANF.TStruct name' fields :) s
   let fields' = map (\(C.Annoted name'' t') -> C.Annoted name'' t') fields
   return (ANF.TStruct name' fields')
 convertToplevel (C.TExtern _ t) = return (ANF.TExtern t)
 convertToplevel (C.TEnumeration _ _) = error "TODO: convertToplevel"
-convertToplevel (C.TUnion name fields) = return $ ANF.TUnion name fields
+convertToplevel (C.TUnion name fields) = do
+  modify $ \s -> second (ANF.TUnion name fields :) s
+  return $ ANF.TUnion name fields
 convertToplevel _ = error "TODO: convertToplevel"
