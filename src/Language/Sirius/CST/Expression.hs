@@ -72,6 +72,7 @@ data Toplevel
   --   The second argument is a list of toplevel declarations
   | TAnnotation Text (Located Toplevel)
   | TEnumeration (Annoted [Generic]) [Annoted [Type]]
+  | TTypeAlias (Annoted [Generic]) Type
   deriving (Eq, Show)
 
 data Expression

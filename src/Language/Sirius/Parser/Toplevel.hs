@@ -15,6 +15,15 @@ parseImport =
     name <- (:) <$> L.identifier <*> P.many (P.string "." *> L.identifier)
     return $ C.TUse name
 
+parseTypeAlias :: Monad m => L.Sirius m C.Toplevel
+parseTypeAlias =
+  L.lexeme $ do
+    L.reserved "type"
+    name <- L.identifier
+    gens <- P.option [] $ L.brackets $ L.commaSep L.identifier
+    L.reservedOp "="
+    C.TTypeAlias (C.Annoted name gens) <$> T.parseType
+
 parseEnumeration :: Monad m => L.Sirius m C.Toplevel
 parseEnumeration =
   L.lexeme $ do
@@ -137,6 +146,7 @@ parseToplevel p =
   P.choice
     [ parseImport
     , parseAnnotation p
+    , parseTypeAlias
     , parseEnumeration
     , P.try $ parsePropFunction p
     , parseFunction p
