@@ -15,8 +15,8 @@ parsePattern =
   P.choice
     [ C.PLiteral <$> parseLiteral
     , C.PWildcard F.<$ L.reserved "_"
+    , P.try parseApp
     , C.PVariable <$> parseNamespaced
-    , parseApp
     , parseStruct
     ]
 
