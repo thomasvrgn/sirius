@@ -10,6 +10,33 @@ import qualified Language.Sirius.ANF.AST as T
 import qualified Language.Sirius.CST.Modules.Annoted as C
 import LLVM.AST (Type(StructureType))
 import LLVM.IRBuilder (typedef)
+import qualified Data.List as L
+import qualified Data.Maybe as MB
+import qualified Data.Text as T
+
+-- Invalid sizeof but let the compiler know which 
+-- types are the heaviest
+sizeOf :: LLVM m => AST.Type -> m Int
+sizeOf (AST.IntegerType _) = return 4
+sizeOf (AST.PointerType s _) = (+8) <$> sizeOf s
+sizeOf (AST.StructureType _ xs) = sum <$> mapM sizeOf xs
+sizeOf (AST.ArrayType _ x) = sizeOf x
+sizeOf (AST.FloatingPointType _) = return 8
+sizeOf (AST.VectorType _ x) = sizeOf x
+sizeOf AST.MetadataType = return 8
+sizeOf AST.LabelType = return 8
+sizeOf AST.VoidType = return 0
+sizeOf (AST.FunctionType ret args _) = do
+  retSize <- sizeOf ret
+  argSizes <- mapM sizeOf args
+  return $ retSize + sum argSizes
+sizeOf AST.TokenType = return 8
+sizeOf (AST.NamedTypeReference (AST.Name x)) = do
+  aliases <- ST.gets lsAliases
+  case M.lookup (decodeUtf8 x) aliases of
+    Just (_, ty) -> sizeOf ty
+    Nothing -> error $ "Type " <> show x <> " not found"
+sizeOf (AST.NamedTypeReference _) = return 8
 
 toBS :: Text -> ShortByteString
 toBS = fromString . toString
@@ -49,6 +76,12 @@ fromType (T.TRec name f) = do
         Just (alias'', _) -> return alias''
         Nothing -> error $ "fromType: alias " <> name <> " not found"
 fromType (T.TList t) = AST.ptr <$> fromType t
+fromType (T.TApp (T.TId n) tys) | "$$Either" `T.isPrefixOf` n = do
+  tys' <- mapM fromType tys
+  sizes <- mapM sizeOf tys'
+  let max' = L.maximum sizes
+  let fieldTypeMax = find (\(_, size) -> size == max') $ zip tys' sizes
+  return $ fst $ MB.fromJust fieldTypeMax
 fromType z@(T.TApp _ _) = error $ "fromType: encountered TApp: " <> show z
 
 toDebrujinStruct :: LLVM m => T.Toplevel -> m ()
