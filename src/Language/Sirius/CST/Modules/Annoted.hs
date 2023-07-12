@@ -20,14 +20,14 @@ pattern (:@) :: Text -> a -> Annoted a
 pattern x :@ t = Annoted x t
 
 instance T.Show a => T.Show (Annoted a) where
-  show (x :@ t) = show x ++ " : " ++ show t
+  show (x :@ t) = toString x ++ " : " ++ show t
   show _        = "COMPILER ERROR: Annoted.show"
 
 instance {-# OVERLAPS #-} T.Show (Annoted String) where
-  show (x :@ t) = show x ++ " : " ++ t
+  show (x :@ t) = toString x ++ " : " ++ t
   show _        = "COMPILER ERROR: Annoted.show"
 
 instance {-# OVERLAPS #-} T.Show a => T.Show (Annoted (Maybe a)) where
-  show (x :@ (Just t)) = show x ++ " : " ++ show t
-  show (x :@ Nothing)  = show x
+  show (x :@ (Just t)) = toString x ++ " : " ++ show t
+  show (x :@ Nothing)  = toString x
   show _               = "COMPILER ERROR: Annoted.show"
