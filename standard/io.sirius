@@ -1,11 +1,10 @@
 use arithmetic;
+use string;
 
-extern strlen(text: String): Int;
 extern putchar(c: Char): Int;
 extern show_int(c: Int): String;
 extern show_float(c: Float): String;
 extern show_char(c: Char): String;
-extern strlen(text: String): Int;
 
 property (c: a) show[a](): String;
 

@@ -132,6 +132,7 @@ findStruct name = do
     find
       (\case
          A.TStruct (C.Annoted name'' _) _ -> name'' == name'
+         A.TEnumeration (C.Annoted name'' _) _ -> name'' == name'
          _                                -> False)
       m
 
@@ -153,6 +154,7 @@ monoExpr (A.ELocated (A.EVariable name ty) pos) = do
             Right (Right sub') -> do
               let name'' =
                     name' <> "_" <> L.intercalate "_" (map show (M.elems sub'))
+              ST.modify $ \s -> s { mstTypeMap = M.insert (name, ty) name'' (mstTypeMap s) }
               body' <- monoExpr (Sub.apply sub' body)
               retTy' <- monoType $ Sub.apply sub' retTy
               args' <-
@@ -166,7 +168,6 @@ monoExpr (A.ELocated (A.EVariable name ty) pos) = do
                         (Sub.apply sub' $
                          A.TFunction [] (C.Annoted name'' retTy') args' body')
                         (mstVarDefs s)
-                  , mstTypeMap = M.insert (name, ty) name'' (mstTypeMap s)
                   }
               A.EVariable name'' <$> monoType ty
         _ -> A.EVariable name <$> monoType ty
@@ -175,11 +176,12 @@ monoExpr (A.EApplication fun args ret) = do
   args' <- mapM monoExpr args
   ret' <- monoType ret
   return $ A.EApplication fun' args' ret'
-monoExpr (A.EIf cond then' else') = do
+monoExpr (A.EIf cond then' else' t) = do
   cond' <- monoExpr cond
   then'' <- mapM monoExpr then'
   else'' <- mapM monoExpr else'
-  return $ A.EIf cond' then'' else''
+  t' <- monoType t
+  return $ A.EIf cond' then'' else'' t'
 monoExpr (A.EBlock exprs) = do
   exprs' <- mapM monoExpr exprs
   return $ A.EBlock exprs'
@@ -205,9 +207,12 @@ monoExpr (A.ELet (C.Annoted name ty) expr body t) = do
     Nothing -> return Nothing
   body' <- maybe (return Nothing) ((Just <$>) . monoExpr) body
   return $ A.ELet (C.Annoted name ty') expr' body' t'
-monoExpr (A.EProperty expr field) = do
+monoExpr (A.EProperty expr field t) = do
   expr' <- monoExpr expr
-  return $ A.EProperty expr' field
+  t' <- case t of
+    Just t' -> Just <$> monoType t'
+    Nothing -> return Nothing
+  return $ A.EProperty expr' field t'
 monoExpr (A.EList exprs t) = do
   exprs' <- mapM monoExpr exprs
   return $ A.EList exprs' t
@@ -244,8 +249,8 @@ monoExpr (A.EIndex expr index) = do
   index' <- monoExpr index
   return $ A.EIndex expr' index'
 monoExpr (A.ELocated (A.EClassVariable name ty app) pos) = do
-  foundPropName <- lookupFuncProp name ty
-  case foundPropName of
+  fncs <- ST.gets mstProps
+  case M.lookup (name, ty) fncs of
     Nothing -> do
       found <- findFuncProp name ty
       case found of
@@ -263,11 +268,13 @@ monoExpr (A.ELocated (A.EClassVariable name ty app) pos) = do
                 Right (Left err) -> error err
                 Right (Right sub3) -> do
                   let sub4 = Sub.compose sub' sub3
-                  ty'' <- monoType (Sub.apply sub4 ty')
                   let name' =
                         "$" <> funcName <> "_" <> show (Sub.apply sub4 (case app of
-                            args' T.:-> ret' -> (ty:args') T.:-> ret'
+                            args' T.:-> ret' -> (ty':args') T.:-> ret'
                             _ -> app))
+                  
+                  ST.modify $ \s -> s { mstProps = M.insert (name, Sub.apply sub4 ty') name' (mstProps s) }
+                  ty'' <- monoType (Sub.apply sub4 ty')
                   body' <- monoExpr (Sub.apply sub4 body)
                   ret' <- monoType (Sub.apply sub4 ret)
                   args' <-
@@ -282,7 +289,6 @@ monoExpr (A.ELocated (A.EClassVariable name ty app) pos) = do
                             (Sub.apply sub4 $
                              A.TFunction [] (C.Annoted name' ret') (C.Annoted propName propType : args') body')
                             (mstPropDefs s)
-                      , mstProps = M.insert (name, ty) name' (mstProps s)
                       }
                   return $ A.EVariable name' ((ty'' : map C.annotedType args) T.:-> ret')
         Just _ -> error "COMPILER ERROR: Function property not found through the toplevels"
@@ -307,6 +313,35 @@ monoExpr (A.EAssembly op exprs) = do
 monoExpr (A.ELocated expr _) = monoExpr expr
 monoExpr A.EVariable {} = error "COMPILER ERROR: EVariable should not be in the AST at this point"
 monoExpr A.EClassVariable {} = error "COMPILER ERROR: EClassVariable should not be in the AST at this point"
+monoExpr (A.EInternalField expr f t) = do
+  expr' <- monoExpr expr
+  t' <- case t of
+    Just t' -> Just <$> monoType t'
+    Nothing -> return Nothing
+  return $ A.EInternalField expr' f t'
+monoExpr (A.EDeclaration name ty) = do
+  ty' <- monoType ty
+  return $ A.EDeclaration name ty'
+monoExpr (A.EMatch (expr, ty) cases) = do
+  expr' <- monoExpr expr
+  ty' <- monoType ty
+  cases' <- mapM (\(pat, expr'', t') -> (,,) <$> monoPattern pat <*> monoExpr expr'' <*> monoType t') cases
+  return $ A.EMatch (expr', ty') cases'
+
+monoPattern :: MonadMono m => A.Pattern -> m A.Pattern  
+monoPattern (A.PVariable name ty) = do
+  ty' <- monoType ty
+  return $ A.PVariable name ty'
+monoPattern (A.PLiteral l) = return $ A.PLiteral l
+monoPattern (A.PApp name args t) = do
+  args' <- mapM monoPattern args
+  t' <- monoType t
+  return $ A.PApp name args' t'
+monoPattern (A.PStruct ty fields) = do
+  ty' <- monoType ty
+  fields' <- mapM (\(C.Annoted name pat) -> C.Annoted name <$> monoPattern pat) fields
+  return $ A.PStruct ty' fields'
+monoPattern A.PWildcard = return A.PWildcard
 
 monoUpdate :: MonadMono m => A.UpdateExpression -> m A.UpdateExpression
 monoUpdate (A.UVariable name ty) = do
@@ -324,6 +359,10 @@ monoUpdate (A.UIndex expr index) = do
 monoUpdate (A.UProperty expr field) = do
   expr' <- monoUpdate expr
   return $ A.UProperty expr' field
+monoUpdate (A.UInternalField expr field) = do
+  expr' <- monoUpdate expr
+  return $ A.UInternalField expr' field
+
 
 runMonomorphizationPass :: Monad m => [A.Toplevel] -> Checker.CheckerState -> m (Either (Text, Maybe Text, C.Position) [A.Toplevel])
 runMonomorphizationPass xs c = do
@@ -359,6 +398,17 @@ monoType z@(T.TId n) = do
                     (mstTypeDefs s)
               }
           return $ T.TId n
+        Just (A.TEnumeration (C.Annoted _ _) xs') -> do
+          ST.modify $ \s -> s {mstTypes = M.insert z n (mstTypes s)}
+          ST.modify $ \s ->
+            s
+              { mstTypeDefs =
+                  M.insert
+                    n
+                    (A.TEnumeration (C.Annoted n []) xs')
+                    (mstTypeDefs s)
+              }
+          return $ T.TId n
         _ -> return z
 monoType z@(T.TApp n args) = do
   m <- ST.gets mstTypes
@@ -372,7 +422,7 @@ monoType z@(T.TApp n args) = do
           let gens' = map (\(T.TVar name'') -> name'') gens
           let sub = M.fromList $ zip gens' args
           let subName = name' <> "_" <> L.intercalate "_" (map show args)
-          ST.modify $ \s -> s {mstTypes = M.insert n subName (mstTypes s)}
+          ST.modify $ \s -> s {mstTypes = M.insert z subName (mstTypes s)}
           fields' <-
             mapM
               (\(C.Annoted name'' ty) ->
@@ -384,6 +434,25 @@ monoType z@(T.TApp n args) = do
                   M.insert
                     subName
                     (A.TStruct (C.Annoted subName []) fields')
+                    (mstTypeDefs s)
+              }
+          return $ T.TId subName
+        Just (A.TEnumeration (C.Annoted name' gens) xs') -> do
+          let gens' = map (\(T.TVar name'') -> name'') gens
+          let sub = M.fromList $ zip gens' args
+          let subName = name' <> "_" <> L.intercalate "_" (map show args)
+          ST.modify $ \s -> s {mstTypes = M.insert z subName (mstTypes s)}
+          fields' <-
+            mapM
+              (\(C.Annoted name'' ty) ->
+                C.Annoted name'' <$> monoType (Sub.apply sub ty))
+              xs'
+          ST.modify $ \s ->
+            s
+              { mstTypeDefs =
+                  M.insert
+                    subName
+                    (A.TEnumeration (C.Annoted subName []) fields')
                     (mstTypeDefs s)
               }
           return $ T.TId subName

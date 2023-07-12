@@ -1,21 +1,50 @@
 use std.prelude;
 
-fn f(): Reference[Int] = {
-  let test: Reference[Int] = ref_malloc(12);
-  *test.value = 1;
-  test
+extern malloc[a](size: Int): ref a;
+
+enum LinkedList[a] {
+  Nil,
+  Cons(a, ref LinkedList[a])
 }
 
-fn g(test: Reference[Int]): Reference[Int] = {
-  *test.value = 2;
-  test
+fn (c: String) ==(other: String): Bool = strcmp(c, other) == 0;
+
+fn (c: a) typeOf[a](): String = asm "extractvalue" (asm "extractvalue" c 0) 0;
+fn (c: LinkedList[a]) first[a](): a = asm "extractvalue" (asm "extractvalue" c 0) 1;
+fn (c: LinkedList[a]) show[a](): String = {
+  c match {
+    Nil => "Nil"
+    Cons(x, xs) => "Cons(" + x.show() + ", " + xs.show() + ")"
+  }
 }
+
+fn (c: LinkedList[a]) len[a](): Int = {
+  c match {
+    Nil => 0
+    Cons(_, xs) => 1 + xs->len()
+  }
+}
+
+fn test(x: String): fn(): String = {
+  x match {
+    "bruh" => fn (): String = x + "bruh"
+    "bruh2" => fn (): String = x + "bruh2"
+    _ => fn (): String = "bruh3"
+  }
+}
+
+fn (c: a) x[a](): String = asm "extractvalue" (asm "extractvalue" c 1) 0;
+
+enum Unit {
+  Unit
+}
+
+fn (c: Unit) show(): String = "Unit";
 
 fn main(): Int = {
-  let x: Reference[Int] = f();
-  let y: Reference[Int] = g(x);
-
-  print(x);
-
+  // print(Cons(5, ref Nil));
+  print(test("bruh")());
+  print(Cons(5, ref Cons(4, ref Cons(3, ref Nil))).len());
+  print(Unit);
   0
 }

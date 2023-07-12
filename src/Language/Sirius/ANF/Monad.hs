@@ -8,12 +8,12 @@ import qualified Language.Sirius.ANF.AST as ANF
 import Language.Sirius.CST.Modules.Annoted (Annoted)
 import qualified Language.Sirius.Typecheck.Definition.Type as T
 
-type MonadANF m = (RWS.MonadRWS [(Text, Text)] () Int m)
+type MonadANF m = (RWS.MonadRWS [(Text, Text)] () (Int, [ANF.Toplevel]) m)
 
 fresh :: MonadANF m => m Text
 fresh = do
-  i <- get
-  put (i + 1)
+  i <- gets fst
+  modify $ \s -> (i + 1, snd s)
   return $ "$a" <> show i
 
 createLet :: [(Annoted T.Type, ANF.Expression)] -> [ANF.Expression]

@@ -12,14 +12,16 @@ import           Language.Sirius.Typecheck.ConstraintSolver (findM)
 import qualified Language.Sirius.Typecheck.Definition.AST   as T
 import qualified Language.Sirius.Typecheck.Definition.Type  as T
 
-type MonadClosure m = (RWS.MonadRWS () [T.Toplevel] ClosureState m)
+type MonadClosure m = (RWS.MonadRWS () [T.Toplevel] ClosureState m, MonadFail m)
 
 data ClosureState =
   ClosureState
-    { clCounter   :: Int
-    , clExcluded  :: S.Set (C.Annoted T.Type)
-    , clToplevels :: [T.Toplevel]
-    , clConverted :: S.Set Text
+    { clCounter      :: Int
+    , clExcluded     :: S.Set (C.Annoted T.Type)
+    , clToplevels    :: [T.Toplevel]
+    , clConverted    :: S.Set Text
+    , clStructsNames :: S.Set Text
+    , clStructsFuns  :: S.Set (Text, T.Type)
     }
 
 fresh :: MonadClosure m => m Int

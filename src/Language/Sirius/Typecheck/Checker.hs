@@ -21,6 +21,7 @@ import qualified Language.Sirius.CST.Expression                 as C
 import qualified Language.Sirius.CST.Modules.Annoted            as C
 import qualified Language.Sirius.CST.Modules.Literal            as C
 import qualified Language.Sirius.CST.Modules.Located            as C
+import qualified Language.Sirius.CST.Modules.Namespaced         as D
 import qualified Language.Sirius.Typecheck.ConstraintSolver     as CS
 import qualified Language.Sirius.Typecheck.Definition.Monad     as M
 import qualified Language.Sirius.Typecheck.Modules.Apply        as AP
@@ -28,7 +29,6 @@ import qualified Language.Sirius.Typecheck.Modules.Substitution as T
 import           Prelude                                        hiding
                                                                 (Constraint,
                                                                  Type)
-import qualified Language.Sirius.CST.Modules.Namespaced as D
 
 type Infer f m f'
    = MonadChecker m =>
@@ -95,9 +95,10 @@ inferExpression (C.Located pos (C.EVariable (D.Simple name))) = do
           case t of
             T.TRec _ fields -> do
               let args = map snd fields
-              return (args T.:-> t, A.ELocated (A.EVariable name (args T.:-> t)) pos)
-            _ ->
-              E.throwError ("Invalid constructor found: " <> name, Nothing, pos)
+              return
+                (args T.:-> t, A.ELocated (A.EVariable name (args T.:-> t)) pos)
+            _ T.:-> _ -> return (t, A.ELocated (A.EVariable name t) pos)
+            _ -> return (t, A.EApplication (A.ELocated (A.EVariable name ([] T.:-> t)) pos) [] t)
     Just scheme -> do
       t <- M.instantiate scheme
       return (t, A.ELocated (A.EVariable name t) pos)
@@ -107,13 +108,17 @@ inferExpression (C.EApplication (C.EProperty z field C.:>: p2) args C.:>: _) = d
   ret <- M.fresh
   unify (AP.Class field t (ts T.:-> ret), p2)
   return
-    (ret, A.EApplication (A.ELocated (A.EClassVariable field t (ts T.:-> ret)) p2) (z' : args') ret)
+    ( ret
+    , A.EApplication
+        (A.ELocated (A.EClassVariable field t (ts T.:-> ret)) p2)
+        (z' : args')
+        ((t:ts) T.:-> ret))
 inferExpression (C.Located pos (C.EApplication f xs)) = do
   (t, f') <- M.local' $ inferExpression f
   (ts, xs') <- unzip <$> mapM (M.local' . inferExpression) xs
   ret <- M.fresh
   unify (t AP.:~: (ts T.:-> ret), pos)
-  return (ret, A.EApplication f' xs' ret)
+  return (ret, A.EApplication f' xs' (ts T.:-> ret))
 inferExpression (C.Located pos (C.ELet (C.Annoted name ty) expr body)) = do
   generics' <- ST.gets M.generics
   tv <- P.toWithEnv ty generics'
@@ -134,7 +139,7 @@ inferExpression (C.Located pos (C.EIf cond then' else')) = do
   (t', then'') <- unzip <$> M.local' (mapM inferExpression then')
   (t'', else'') <- unzip <$> M.local' (mapM inferExpression else')
   unify (createType t' AP.:~: createType t'', pos)
-  return (createType t', A.EIf cond' then'' else'')
+  return (createType t', A.EIf cond' then'' else'' (createType t'))
 inferExpression (C.Located _ (C.ELiteral l)) = do
   (t, l') <- inferLiteral l
   return (t, A.ELiteral l')
@@ -154,7 +159,7 @@ inferExpression (C.Located pos (C.EProperty expr name)) = do
   tv <- M.fresh
   (t, e') <- M.local' $ inferExpression expr
   unify (AP.Field name tv t, pos)
-  return (tv, A.EProperty e' name)
+  return (tv, A.EProperty e' name (Just tv))
 inferExpression (C.Located pos (C.EStruct ty fields)) = do
   structs <- ST.gets M.types
   gens <- ST.gets M.generics
@@ -237,8 +242,80 @@ inferExpression (C.Located _ (C.EAssembly op args)) = do
   t <- M.fresh
   args' <- mapM (M.local' . inferExpression) args
   let (_, args'') = unzip args'
-  return (t, A.EAssembly op args'')
-inferExpression (C.Located pos _) = E.throwError ("Invalid expression", Nothing, pos)
+  return (t, A.EAssembly (op, t) args'')
+inferExpression (C.Located pos (C.EMatch expr cases)) = do
+  (t, e') <- local' $ inferExpression expr
+  (tys, cases') <- L.unzip <$> local' (forM cases (\(pat, expr') -> do
+    (t', pat', vars) <- inferPattern pat
+    unify (t AP.:~: t', pos)
+    (t'', e'') <- withVariables (M.toList vars) $ inferExpression expr'
+    return ((t', t''), (pat', e'', t''))))
+
+  (ret, xs) <- case tys of
+    [] -> E.throwError ("Empty match", Nothing, pos)
+    ((_, ret):xs) -> return (ret, xs)
+
+  forM_ xs (\(_, t') -> unify (ret AP.:~: t', pos))
+
+  return (ret, A.EMatch (e', t) cases')
+inferExpression (C.Located pos _) =
+  E.throwError ("Invalid expression", Nothing, pos)
+
+inferPattern :: M.MonadChecker m => C.Located C.Pattern -> m (T.Type, A.Pattern, M.Map Text T.Scheme)
+inferPattern (C.Located _ (C.PVariable (D.Simple name))) = do
+  types' <- ST.gets M.types
+  case M.lookup name types' of
+    Just t -> do
+      t' <- M.instantiate t
+      return (t', A.PVariable name t', M.empty)
+    Nothing -> do
+      t <- M.fresh
+      return (t, A.PVariable name t, M.singleton name (T.Forall [] t))
+inferPattern (C.Located pos (C.PStruct ty fields)) = do
+  structs <- ST.gets M.types
+  gens <- ST.gets M.generics
+  ty' <- P.toWithEnv ty gens
+  let name = findName ty'
+  case M.lookup name structs of
+    Just (T.Forall _ (T.TRec _ fields')) -> do
+      (tys, fields'', envs) <-
+        unzip3 <$>
+        mapM
+          (\(C.Annoted name' expr) -> do
+             case L.lookup name' fields' of
+               Just t -> do
+                 (t', expr', env) <- M.local' $ inferPattern expr
+                 unify (t AP.:~: t', pos)
+                 return (t', expr', env)
+               Nothing ->
+                 E.throwError ("Field not in struct: " <> name, Nothing, pos))
+          fields
+      let typedFields = zip (map C.annotedName fields) tys
+      return
+        ( T.TRec name typedFields
+        , A.PStruct ty' (zipWith C.Annoted (map C.annotedName fields) fields'')
+        , M.unions envs)
+    Just _ -> E.throwError ("Misformed struct: " <> name, Nothing, pos)
+    Nothing -> E.throwError ("Struct not in scope: " <> name, Nothing, pos)
+inferPattern (C.Located pos (C.PApp (D.Simple name) pats)) = do
+  env <- ST.gets M.types
+  tv <- M.fresh
+  (t, p) <- case M.lookup name env of
+    Nothing -> E.throwError ("Unbound constructor: " <> name, Nothing, pos)
+    Just scheme -> do
+      t <- instantiate scheme
+      return (t, name)
+  (t', pats', envs) <- L.unzip3 <$> mapM inferPattern pats
+  unify (t AP.:~: (t' T.:-> tv), pos)
+  return (tv, A.PApp p pats' tv, M.unions envs)
+inferPattern (C.Located _ (C.PLiteral lit)) = do
+  (t, lit') <- inferLiteral lit
+  return (t, A.PLiteral lit', M.empty)
+inferPattern (C.Located _ C.PWildcard) = do
+  t <- M.fresh
+  return (t, A.PWildcard, M.empty)
+inferPattern (C.Located pos _) =
+  E.throwError ("Invalid pattern", Nothing, pos)
 
 inferLiteral :: a ~ C.Literal => M.Infer a m a
 inferLiteral (C.Int i)    = return (T.Int, C.Int i)
@@ -264,8 +341,7 @@ inferToplevel (C.Located pos (C.TFunction gens (C.Annoted name ret) args body)) 
   let gens' = filter (/= -1) gens''
   let funTy = map snd argsTypes T.:-> ret'
   let args' =
-        (name, T.Forall [] funTy) :
-        map (BF.second (T.Forall [])) argsTypes
+        (name, T.Forall [] funTy) : map (BF.second (T.Forall [])) argsTypes
   (t, e') <-
     P.withGenerics
       generics'''
@@ -281,13 +357,12 @@ inferToplevel (C.Located pos (C.TFunction gens (C.Annoted name ret) args body)) 
           else T.Forall gens' $ T.apply s funTy
   ST.modify $ \s' -> s' {M.variables = M.insert name scheme (M.variables s')}
   ST.modify $ \s' -> s' {M.returnType = T.Void}
-
   when (name == "main" && not (null (T.free (T.apply s e')))) $ do
     E.throwError ("Main cannot handle generic parameters.", Nothing, pos)
-
   return
     ( T.Void
-    , Just $ T.apply s $
+    , Just $
+      T.apply s $
       A.TFunction
         generics''
         (C.Annoted name ret')
@@ -312,22 +387,24 @@ inferToplevel (C.Located pos (C.TFunctionProp gens prop (C.Annoted name ret) arg
     case prop of
       C.Annoted name' ty -> C.Annoted name' <$> P.toWithEnv ty generics'''
   let gens' = filter (/= -1) gens''
-  let funTy = map snd argsTypes T.:-> ret'
+  let funTy = (propTy : map snd argsTypes) T.:-> ret'
   let args' =
-        (propName, T.Forall [] propTy) :
-        map (BF.second (T.Forall [])) argsTypes
-  (t, e') <-
+        (propName, T.Forall [] propTy) : map (BF.second (T.Forall [])) argsTypes
+  ((_, e'), s) <-
     P.withGenerics
       generics'''
       (withClass
          (propTy, name)
          (T.Forall gens' funTy)
-         (withVariables args' $ M.local' $ inferExpression body)
+         (withVariables args' $ M.local' $ do
+            res@(t, _) <- inferExpression body
+            unify (ret' AP.:~: t, pos)
+            csts <- ST.gets M.constraints
+            s <- CS.solve csts
+            ST.modify $ \s' -> s' {M.constraints = []}
+            return (res, s))
          pos)
-  unify (ret' AP.:~: t, pos)
-  csts <- ST.gets M.constraints
-  s <- CS.solve csts
-  ST.modify $ \s' -> s' {M.constraints = []}
+  
   env <- M.ask
   let scheme' =
         if null gens
@@ -343,7 +420,8 @@ inferToplevel (C.Located pos (C.TFunctionProp gens prop (C.Annoted name ret) arg
       }
   return
     ( T.Void
-    , Just $ T.apply s $
+    , Just $
+      T.apply s $
       A.TFunctionProp
         generics''
         prop'
@@ -384,12 +462,41 @@ inferToplevel (C.Located _ (C.TProperty gens (C.Annoted _ propTy) (C.Annoted met
     mapM
       (\(C.Annoted name' ty) -> C.Annoted name' <$> P.toWithEnv ty generics''')
       args
-      
-  let gens' = map (\case (T.TVar i) -> i; _ -> (-1)) generics''
+  let gens' =
+        map
+          (\case
+             (T.TVar i) -> i
+             _          -> (-1))
+          generics''
   let scheme = T.Forall gens' ((propTy' : map C.annotedType args') T.:-> ret')
-  ST.modify $ \s -> s {M.classes = M.insert (propTy', method) scheme (M.classes s)}
+  ST.modify $ \s ->
+    s {M.classes = M.insert (propTy', method) scheme (M.classes s)}
   return (T.Void, Nothing)
-inferToplevel (C.Located pos _) = E.throwError ("Invalid toplevel", Nothing, pos)
+inferToplevel (C.Located _ (C.TEnumeration (C.Annoted name gens) variants)) = do
+  gens' <- ST.gets M.generics
+  generics'' <- mapM (const fresh) gens
+  let generics''' = M.union gens' $ M.fromList $ zip gens generics''
+  let header = if null gens then T.TId name else T.TApp (T.TId name) generics''
+  variants' <-
+    mapM
+      (\(C.Annoted name' ty) ->
+         C.Annoted name' <$>
+         (if null ty
+            then pure header
+            else (T.:->) <$> mapM (`P.toWithEnv` generics''') ty <*> pure header))
+      variants
+  let variants'' = map (\(C.Annoted name' ty) -> (name', ty)) variants'
+  gens'' <-
+    mapM
+      (\case
+         (T.TVar i) -> return i
+         _          -> return (-1))
+      generics''
+  let tys = map (second (T.Forall gens'')) variants''
+  ST.modify $ \s -> s {M.types = M.union (M.types s) (M.fromList tys)}
+  return (T.Void, Just $ A.TEnumeration (C.Annoted name generics'') variants')
+inferToplevel (C.Located pos _) =
+  E.throwError ("Invalid toplevel", Nothing, pos)
 
 inferUpdate :: M.Infer (C.Located C.UpdateExpression) m A.UpdateExpression
 inferUpdate (C.Located pos (C.UVariable (D.Simple name))) = do
@@ -416,7 +523,8 @@ inferUpdate (C.Located pos (C.UDereference obj)) = do
   (t, e') <- M.local' $ inferUpdate obj
   unify (t AP.:~: T.TAddr tv, pos)
   return (tv, A.UDereference e')
-inferUpdate (C.Located pos _) = E.throwError ("Invalid update expression", Nothing, pos)
+inferUpdate (C.Located pos _) =
+  E.throwError ("Invalid update expression", Nothing, pos)
 
 createType :: [T.Type] -> T.Type
 createType [] = T.Void

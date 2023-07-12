@@ -31,12 +31,12 @@ instance Free Expression where
   free :: Expression -> Set (C.Annoted T.Type)
   free (EVariable x t) = S.singleton (C.Annoted x t)
   free (EApplication f args _) = free f `S.union` free args
-  free (EIf cond t f) = free cond `S.union` free t `S.union` free f
+  free (EIf cond t f _) = free cond `S.union` free t `S.union` free f
   free (EList xs _) = free xs
   free (EIndex arr idx) = free arr `S.union` free idx
   free (ELiteral _) = S.empty
   free (EFunction _ args body) = free body S.\\ S.fromList args
-  free (EProperty x _) = free x
+  free (EProperty x _ _) = free x
   free (EStruct _ xs) = free xs
   free (EUpdate x e) = free x `S.union` free e
   free (ELet n e b _) = (free e `S.union` free b) S.\\ S.singleton n
@@ -48,6 +48,7 @@ instance Free Expression where
   free (ESizeOf _) = S.empty
   free (EAssembly _ xs) = free xs
   free (ELocated e _) = free e
+  free (EInternalField x _ _) = free x
   free _ = S.empty
 
 instance Free UpdateExpression where
@@ -55,6 +56,7 @@ instance Free UpdateExpression where
   free (UIndex arr idx) = free arr `S.union` free idx
   free (UProperty x _) = free x
   free (UDereference x) = free x
+  free (UInternalField x _) = free x
 
 instance Free Toplevel where
   free (TFunction _ name args body) = free body S.\\ S.fromList (name:args)

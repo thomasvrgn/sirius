@@ -15,7 +15,7 @@ type Parser m a = P.ParsecT Text () m a
 reservedWords :: [String]
 reservedWords =
   [ "let"
-  , "mut"
+  , "ref"
   , "struct"
   , "if"
   , "else"
@@ -31,6 +31,8 @@ reservedWords =
   , "property"
   , "with"
   , "to"
+  , "enum"
+  , "match"
   ]
 
 languageDef :: Monad m => Token.GenLanguageDef Text u m
@@ -47,7 +49,7 @@ languageDef =
     , Token.identLetter = P.alphaNum <|> P.char '_' <|> P.char '\''
     , Token.reservedNames = reservedWords
     , Token.reservedOpNames =
-        ["(", ")", "{", "}", "[", "]", ".", "->", "#[", "]"]
+        ["(", ")", "{", "}", "[", "]", ".", "->", "=>"]
     }
 
 lexer :: Monad m => Token.GenTokenParser Text u m

@@ -8,8 +8,8 @@ import Language.Sirius.Closure (runClosureConversionPass)
 import Language.Sirius.LLVM (runCompilerPass, getLLContent)
 import Language.Sirius.Module.Bundler (runModuleBundling)
 import Language.Sirius.ANF (runANFPass)
-import Language.Sirius.Memory (runMemoryPass)
 import Language.Sirius.Module.Resolver (runModuleResolver)
+import Language.Sirius.Enumeration (convertEnumeration)
 
 main :: IO ()
 main = do
@@ -24,9 +24,9 @@ main = do
           res' <- runModuleBundling toplevels
           case res' of
             Right toplevels -> do
-              res'' <- runMemoryPass toplevels
+              -- res'' <- runMemoryPass toplevels
               -- mapM_ print res''
-              res' <- runInferencePass res''
+              res' <- runInferencePass toplevels
               case res' of
                 Right (ast, checker) -> do 
                   -- mapM_ print ast
@@ -34,8 +34,8 @@ main = do
                   case res'' of
                     Right res'' -> do
                       res'' <- runClosureConversionPass res''
+                      res'' <- concat <$> mapM convertEnumeration res''
                       res'' <- runANFPass res''
-                      -- mapM_ print res''
                       content <- getLLContent res''
                       writeFileBS "out.ll" content
                       runCompilerPass res''

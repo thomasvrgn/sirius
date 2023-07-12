@@ -11,8 +11,7 @@ import qualified Language.Sirius.CST.Modules.Literal         as L
 import           Language.Sirius.LLVM.Modules.Monad          (LLVM,
                                                               LLVMState (lsAliases, lsEnv, lsStructs),
                                                               fresh)
-import           Language.Sirius.LLVM.Modules.StructDebrujin (toDebrujinStruct)
-import           Language.Sirius.LLVM.Modules.Type           (fromType, toBS)
+import           Language.Sirius.LLVM.Modules.Type           (fromType, toBS, toDebrujinStruct)
 import qualified Language.Sirius.ANF.AST    as T
 import qualified Language.Sirius.Typecheck.Definition.Type   as T
 import qualified LLVM.AST                                    as AST
@@ -24,6 +23,7 @@ import qualified LLVM.AST.Typed                              as AST
 import qualified LLVM.IRBuilder                              as AST
 import qualified LLVM.IRBuilder                              as IRB
 import qualified Data.List as L
+import Language.Sirius.LLVM.Modules.UnionDebrujin (toDebrujinUnion)
 
 string :: LLVM m => String -> m AST.Operand
 string s = do
@@ -45,6 +45,7 @@ declare (T.TFunction (C.Annoted name ret) args _:xs) = do
     ST.modify $ \s -> s {lsEnv = M.insert name name' (lsEnv s)}
   declare xs
 declare (z@T.TStruct {}:xs) = toDebrujinStruct z *> declare xs
+declare (z@T.TUnion {}:xs) = toDebrujinUnion z *> declare xs
 declare (T.TExtern (C.Annoted name ty):xs) = do
   name' <-
     case ty of
@@ -79,6 +80,7 @@ genToplevel (T.TFunction (C.Annoted name ret) args body) = do
       body' <- genExpression body
       maybe (IRB.ret (IRB.int32 0)) IRB.ret body'
       ST.modify $ \s -> s {lsEnv = env}
+
   ST.modify $ \s -> s {lsEnv = M.insert name name' (lsEnv s)}
 genToplevel _ = return ()
 
@@ -92,6 +94,14 @@ index (x:_) 0  = Just x
 index (_:xs) n = index xs (n - 1)
 index [] _     = Nothing
 
+printf :: LLVM m => String -> [AST.Operand] -> m AST.Operand
+printf s args = do
+  s' <- string s
+  let args' = s' : args
+  let ty = AST.ptr $ AST.FunctionType AST.void [AST.ptr AST.i8] True
+  let f = AST.ConstantOperand $ AST.GlobalReference ty (AST.Name "printf")
+  IRB.call f (zip args' (repeat []))
+
 genExpression :: LLVM m => T.Expression -> m (Maybe AST.Operand)
 genExpression (T.EVariable "void") = return $ Just (IRB.int32 0)
 genExpression (T.EVariable name) = do
@@ -104,62 +114,95 @@ genExpression (T.EVariable name) = do
         _                                             -> Just <$> IRB.load op 0
     Nothing -> error $ "genExpression: variable " <> name <> " not found"
 genExpression (T.EApplication f args) = do
-  env <- ST.gets lsEnv
-  let f' = M.lookup f env
   args' <- mapM genExpression args
-  case f' of
-    Just f'' -> do
-      unless (all isJust args') $
-        error "genExpression: not all arguments are Just"
-      tyF <- AST.typeOf f''
-      tyArgs <- mapM (AST.typeOf . fromJust) args'
-      args'' <-
-        case tyF of
-          Right (AST.PointerType (AST.FunctionType _ args'' _) _) ->
-            forM (zip [(0 :: Int) ..] args'') $ \(idx, arg) -> do
-              let Right tyArg = fromJust $ index tyArgs idx
-              let arg' = fromJust . fromJust $ index args' idx
-              if tyArg == arg
-                then return arg'
-                else bitcast arg' arg
-          x -> error $ "genExpression: not a function: " <> show x
-      Just <$> IRB.call f'' (zip args'' (repeat []))
-    Nothing -> error $ "genExpression: function " <> f <> " not found"
+  case f of
+    "==" -> do
+      case args' of
+        [Just a, Just b] -> Just <$> IRB.icmp IP.EQ a b
+        _                -> error "genExpression: ==: not all arguments are Just"
+    _ -> do
+      env <- ST.gets lsEnv
+      let f' = M.lookup f env
+      case f' of
+        Just f'' -> do
+          unless (all isJust args') $
+            error "genExpression: not all arguments are Just"
+          tyF <- AST.typeOf f''
+          tyArgs <- mapM (AST.typeOf . fromJust) args'
+          args'' <-
+            case tyF of
+              Right (AST.PointerType (AST.FunctionType _ args'' _) _) ->
+                forM (zip [(0 :: Int) ..] args'') $ \(idx, arg) -> do
+                  let Right tyArg = fromJust $ index tyArgs idx
+                  let arg' = fromJust . fromJust $ index args' idx
+                  if tyArg == arg
+                    then return arg'
+                    else bitcast arg' arg
+              Right (AST.PointerType (AST.PointerType (AST.FunctionType _ args'' _) _) _) ->
+                forM (zip [(0 :: Int) ..] args'') $ \(idx, arg) -> do
+                  let Right tyArg = fromJust $ index tyArgs idx
+                  let arg' = fromJust . fromJust $ index args' idx
+                  if tyArg == arg
+                    then return arg'
+                    else bitcast arg' arg
+              x -> error $ "genExpression: not a function: " <> show x <> " " <> show f
+          f''' <- case tyF of
+            Right (AST.PointerType (AST.FunctionType _ _ _) _) -> return f''
+            Right (AST.PointerType (AST.PointerType (AST.FunctionType _ _ _) _) _) ->
+              IRB.load f'' 0
+            x -> error $ "genExpression: not a function: " <> show x
+          Just <$> IRB.call f''' (zip args'' (repeat []))
+        Nothing -> error $ "genExpression: function " <> f <> " not found"
 genExpression (T.EBlock exprs) = do
   env <- ST.gets lsEnv
   exprs' <- mapM genExpression exprs
   ST.modify $ \s -> s {lsEnv = env}
-  return (fromJust $ viaNonEmpty last exprs')
-genExpression (T.EIf cond then' else') = do
+  case viaNonEmpty last exprs' of
+    Just x  -> return x
+    Nothing -> return Nothing
+genExpression (T.EIfElse cond then' else' t) = do
+  t' <- fromType t
+  cond' <- genExpression cond
   thenLabel <- IRB.freshName "then"
   elseLabel <- IRB.freshName "else"
   mergeLabel <- IRB.freshName "merge"
-  cond' <- genExpression cond
   IRB.condBr (fromJust cond') thenLabel elseLabel
+  env <- ST.gets lsEnv
   namedBlock thenLabel
   then'' <- viaNonEmpty last . catMaybes <$> mapM genExpression then'
+  ty <- fromRight (AST.ptr AST.i8) <$> AST.typeOf (fromJust then'')
+  then''' <- if ty /= t' then Just <$> bitcast (fromJust then'') t' else return then''
+    
   IRB.br mergeLabel
+  thenLabel' <- IRB.currentBlock
+  ST.modify $ \s -> s {lsEnv = env}
+  env' <- ST.gets lsEnv
   namedBlock elseLabel
   else'' <- viaNonEmpty last . catMaybes <$> mapM genExpression else'
+  ty' <- fromRight (AST.ptr AST.i8) <$> AST.typeOf (fromJust else'')
+  else''' <- if ty' /= t' then Just <$> bitcast (fromJust else'') t' else return else''
   IRB.br mergeLabel
+  elseLabel' <- IRB.currentBlock
+  ST.modify $ \s -> s {lsEnv = env'}
   namedBlock mergeLabel
-  if isNothing then'' || isNothing else''
+
+  if isNothing then''' || isNothing else'''
     then return Nothing
     else do
       phi <-
-        IRB.phi [(fromJust then'', thenLabel), (fromJust else'', elseLabel)]
+        IRB.phi [(fromJust then''', thenLabel'), (fromJust else''', elseLabel')]
       return $ Just phi
 genExpression (T.ELet (C.Annoted name ty) expr) = do
   ty' <- fromType ty
+  i <- IRB.alloca ty' Nothing 0
+  ST.modify $ \s -> s {lsEnv = M.insert name i (lsEnv s)}
   Just expr' <- genExpression expr
   expr'' <-
     AST.typeOf expr' >>= \(Right e) ->
       if ty' /= e
         then bitcast expr' ty'
         else return expr'
-  i <- IRB.alloca ty' Nothing 0
   IRB.store i 0 expr''
-  ST.modify $ \s -> s {lsEnv = M.insert name i (lsEnv s)}
   return Nothing
 genExpression (T.EProperty expr field) = do
   expr' <- genExpression expr
@@ -179,9 +222,7 @@ genExpression (T.EProperty expr field) = do
                     Just i -> Just <$> IRB.extractValue expr'' [fromIntegral i]
                     Nothing ->
                       error $ "genExpression: field " <> field <> " not found"
-                Nothing ->
-                  error $
-                  "genExpression: struct " <> decodeUtf8 name' <> " not found"
+                Nothing -> error $ "genExpression: struct properties " <> decodeUtf8 name' <> " not found"
             Nothing ->
               error $
               "genExpression: struct " <> decodeUtf8 name' <> " not found"
@@ -192,10 +233,28 @@ genExpression (T.EStruct t fields) = do
   fields' <- mapM (genExpression . C.annotedType) fields
   let fields'' = map fromJust fields'
   v <- IRB.alloca struct' Nothing 0
-  forM_ (zip [0 ..] fields'') $ \(i, field) -> do
-    field' <- IRB.gep v [IRB.int32 0, IRB.int32 i]
-    IRB.store field' 0 field
-  Just <$> IRB.load v 0
+  structs <- ST.gets lsAliases
+  let struct = M.lookup t structs
+  case struct of
+    Just (struct'', _) -> do
+      props <- ST.gets (M.lookup struct'' . lsStructs)
+      case props of
+        Just props' -> do
+          let fields3 = zip (map C.annotedName fields) fields''
+          forM_ fields3 $ \(field, field') -> do
+            case M.lookup field props' of
+              Just i -> do
+                field'' <- IRB.gep v [IRB.int32 0, IRB.int32 (fromIntegral i)]
+                IRB.store field'' 0 field'
+              Nothing ->
+                error $ "genExpression: field " <> field <> " not found"
+          Just <$> IRB.load v 0
+        Nothing ->
+          error $
+          "genExpression: struct " <> t <> " not found"
+    Nothing ->
+      error $
+      "genExpression: struct " <> t <> " not found"
 genExpression (T.EList t elems) = do
   elems' <- mapM genExpression elems
   let elems'' = map fromJust elems'
@@ -219,9 +278,13 @@ genExpression (T.EUpdate update expr) = do
     case exprTy of
       Right ty ->
         case upTy of
-          Right (AST.PointerType x _)
+          Right z@(AST.PointerType x _)
             | x == ty -> return expr'
-            | otherwise -> bitcast expr' x
+            | otherwise -> do
+              expr'' <- IRB.alloca ty Nothing 0
+              IRB.store expr'' 0 expr'
+              x' <- bitcast expr'' z
+              IRB.load x' 0
           _ -> error $ "genExpression: " <> show upTy <> " /= " <> show exprTy
       Left err -> error $ "genExpression: " <> show err
   IRB.store update' 0 expr''
@@ -294,6 +357,15 @@ genExpression (T.ELiteral l) =
       s' <- string s
       return (Just s')
 genExpression z@T.EAssembly {} = parseAssembly z
+genExpression (T.EDeclaration name ty) = do
+  ty' <- fromType ty
+  var <- IRB.alloca ty' Nothing 0
+  ST.modify $ \s -> s {lsEnv = M.insert name var (lsEnv s)}
+  return Nothing
+genExpression (T.EInternalField expr f) = do
+  expr' <- fromJust <$> genExpression expr
+  x' <- IRB.extractValue expr' [fromIntegral f]
+  return $ Just x'
 
 genUpdate :: LLVM m => T.UpdateExpression -> m (Maybe AST.Operand)
 genUpdate (T.UVariable name) = do
@@ -330,8 +402,14 @@ genUpdate (T.UIndex expr index') = do
 genUpdate (T.UDereference expr) = do
   expr' <- fromJust <$> genUpdate expr
   Just <$> IRB.load expr' 0
+genUpdate (T.UInternalField expr _) = do
+  expr' <- fromJust <$> genUpdate expr
+  Just <$> IRB.gep expr' [AST.int32 0, AST.int32 0]
 
 parseAssembly :: LLVM m => T.Expression -> m (Maybe AST.Operand)
+parseAssembly (T.EAssembly "extractvalue" (x:(T.ELiteral (L.Int i)):_)) = do
+  x' <- fromJust <$> genExpression x
+  Just <$> IRB.extractValue x' [fromIntegral i]
 parseAssembly (T.EAssembly "gep" (x:ys)) = do
   x' <- fromJust <$> genExpression x
   y' <- fromJust . sequence <$> mapM genExpression ys
@@ -400,21 +478,12 @@ parseAssembly z = error $ "parseAssembly: not implemented: " <> show z
 bitcastStruct :: LLVM m => AST.Operand -> AST.Type -> m AST.Operand
 bitcastStruct op ty = do
   ty' <- AST.typeOf op
-  case ty' of
-    Left err -> error $ "bitcastStruct: " <> show err
-    Right ty'' -> do
-      propsOperand <- getFields ty''
-      propsTy <- getFields ty
-      let props = M.toList propsOperand
-      let props' = M.toList propsTy
-      let props'' = assoc props props'
-      v <- IRB.alloca ty Nothing 0
-      forM_ props'' $ \(_, ((_, i1), (ty2, i2))) -> do
-        field <- IRB.extractValue op [fromIntegral i1]
-        field' <- IRB.gep v [IRB.int32 0, IRB.int32 (fromIntegral i2)]
-        valueBitcasted <- bitcast field ty2
-        IRB.store field' 0 valueBitcasted
-      return v
+  let ty'' = fromRight (AST.ptr AST.i8) ty'
+  alloca <- IRB.alloca ty'' Nothing 0
+  IRB.store alloca 0 op
+  bitcast' <- IRB.bitcast alloca (AST.ptr ty)
+  IRB.load bitcast' 0
+
 
 bitcast :: LLVM m => AST.Operand -> AST.Type -> m AST.Operand
 bitcast op ty = do
@@ -426,7 +495,17 @@ bitcast op ty = do
       b2 <- isStruct ty'''
       if b1 && b2
         then bitcastStruct op ty
-        else IRB.bitcast op ty
+        else if isPointer ty'' && not (isPointer ty''')
+          then IRB.ptrtoint op ty'''
+          else if not (isPointer ty'') && isPointer ty'''
+            then IRB.inttoptr op ty'''
+            else IRB.bitcast op ty'''
+
+isPointer :: AST.Type -> Bool
+isPointer ty = do
+  case ty of
+    AST.PointerType _ _ -> True
+    _ -> False
 
 isStruct :: LLVM m => AST.Type -> m Bool
 isStruct ty = do
