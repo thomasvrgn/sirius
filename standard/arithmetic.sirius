@@ -1,12 +1,24 @@
-extern concat(a: String, b: String): String;
+fn (c: Int) *(other: Int): Int = From["mul", c, other];
+fn (c: Int) +(other: Int): Int = From["add", c, other];
+fn (c: Int) <(other: Int): Bool = From["icmp", "slt", c, other];
+fn (c: Int) >(other: Int): Bool = From["icmp", "sgt", c, other];
+fn (c: Int) <=(other: Int): Bool = From["icmp", "sle", c, other];
+fn (c: Int) >=(other: Int): Bool = From["icmp", "sge", c, other];
+fn (c: Int) /(other: Int): Int = From["sdiv", c, other];
+fn (c: Int) -(other: Int): Int = From["sub", c, other];
+fn (c: Int) %(other: Int): Int = From["srem", c, other];
+fn (c: Int) &(other: Int): Int = From["and", c, other];
+fn (c: Int) |(other: Int): Int = From["or", c, other];
+fn (c: Int) ^(other: Int): Int = From["xor", c, other];
+fn (c: Int) <<(other: Int): Int = From["shl", c, other];
+fn (c: Int) >>(other: Int): Int = From["ashr", c, other];
+fn (c: Int) ~(): Int = From["not", c];
+fn (c: Int) ++(): Int = From["add", c, 1];
+fn (c: Int) --(): Int = From["sub", c, 1];
+fn (c: Int) ==(other: Int): Bool = From["icmp", "eq", c, other];
+fn (c: Int) !=(other: Int): Bool = From["icmp", "ne", c, other];
 
-fn (c: Int) *(other: Int): Int = asm "mul" c other;
-fn (c: Int) +(other: Int): Int = asm "add" c other;
-fn (c: Int) <(other: Int): Bool = asm "icmp" "slt" c other;
-fn (c: Int) >(other: Int): Bool = asm "icmp" "sgt" c other;
-fn (c: Int) -(other: Int): Int = asm "sub" c other;
-fn (c: Bool) ==(other: Bool): Bool = asm "icmp" "eq" c other;
-fn (c: Bool) &&(other: Bool): Bool = if c { other } else { false };
-fn (c: Int) ==(other: Int): Bool = asm "icmp" "eq" c other;
-
-fn (s1: String) +(s2: String): String = concat(s1, s2);
+fn (c: Bool) &&(other: Bool): Bool = From["and", c, other];
+fn (c: Bool) ||(other: Bool): Bool = From["or", c, other];
+fn (c: Bool) ^(other: Bool): Bool = From["xor", c, other];
+fn (c: Bool) !(): Bool = From["not", c];
