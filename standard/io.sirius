@@ -1,14 +1,13 @@
 use arithmetic;
-use string;
+use text.string;
 
 extern putchar(c: Char): Int;
 extern show_int(c: Int): String;
 extern show_float(c: Float): String;
 extern show_char(c: Char): String;
+extern scanf(format: String, buffer: ref String): Int;
 
 property (c: a) show[a](): String;
-
-fn (c: [a]) index[a](idx: Int): a = asm "load" (asm "gep" c idx);
 
 fn printf(text: String): Int = {
   let size: Int = strlen(text);
@@ -17,6 +16,14 @@ fn printf(text: String): Int = {
   }
 
   size;
+}
+
+mod IO {
+  fn input(): String = {
+    let buffer: String = "";
+    scanf("%s", ref buffer);
+    buffer
+  }
 }
 
 fn putstr(text: String): Int = printf(text);
