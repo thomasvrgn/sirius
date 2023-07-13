@@ -1,0 +1,29 @@
+use std.arithmetic;
+use std.array.array;
+use std.internal.memory;
+
+extern strlen(text: String): Int;
+extern strcmp(a: String, b: String): Int;
+extern concat(a: String, b: String): String;
+
+fn (c: String) len(): Int = strlen(c);
+fn (c: String) index(i: Int): Char = c.at(i);
+
+fn (c: String) ==(other: String): Bool = strcmp(c, other) == 0;
+fn (c: String) !=(other: String): Bool = strcmp(c, other) != 0;
+
+fn (c: String) <(other: String): Bool = strcmp(c, other) < 0;
+fn (c: String) >(other: String): Bool = strcmp(c, other) > 0;
+fn (c: String) <=(other: String): Bool = strcmp(c, other) <= 0;
+fn (c: String) >=(other: String): Bool = strcmp(c, other) >= 0;
+
+fn (c: String) +(other: String): String = concat(c, other);
+fn (c: String) *(other: Int): String = {
+  let result: String = "";
+  for i in 0 to other {
+    result = result + c;
+  }
+  result
+}
+
+
