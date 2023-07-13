@@ -11,15 +11,8 @@ import qualified Text.Parsec.Expr                    as E
 operatorTable ::
      Monad m => L.Parser m [[E.Operator Text () m (C.Located C.Expression)]]
 operatorTable = do
-  return $ reverse
-    [ [propCallBin "||" E.AssocLeft, propCallBin "&&" E.AssocLeft]
-    , [propCallBin "!=" E.AssocLeft, propCallBin "==" E.AssocLeft]
-    , [ propCallBin ">=" E.AssocLeft
-      , propCallBin ">" E.AssocLeft
-      , propCallBin "<=" E.AssocLeft
-      , propCallBin "<" E.AssocLeft
-      ]
-    , [propCallBin "+" E.AssocLeft, propCallBin "-" E.AssocLeft]
+  return
+    [ [propCallBin "+" E.AssocLeft, propCallBin "-" E.AssocLeft]
     , [ propCallBin "%" E.AssocLeft
       , propCallBin "/" E.AssocLeft
       , propCallBin "*" E.AssocLeft
@@ -27,6 +20,13 @@ operatorTable = do
     , [propCallUn "-", propCallUn "+"]
     , [propCallUn "!", propCallUn "--", propCallUn "++"]
     , [propCallPost "--", propCallPost "++"]
+    , [propCallBin "!=" E.AssocLeft, propCallBin "==" E.AssocLeft]
+    , [ propCallBin ">=" E.AssocLeft
+      , propCallBin ">" E.AssocLeft
+      , propCallBin "<=" E.AssocLeft
+      , propCallBin "<" E.AssocLeft
+      ]
+    , [propCallBin "||" E.AssocLeft, propCallBin "&&" E.AssocLeft]
     , [common]
     ]
 
