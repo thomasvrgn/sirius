@@ -32,8 +32,6 @@ mgu Bool Bool = return $ Right M.empty
 mgu Float Float = return $ Right M.empty
 mgu Void Void = return $ Right M.empty
 mgu Char Char = return $ Right M.empty
-mgu (TList t1) (TAddr t2) = mgu t1 t2
-mgu (TAddr t1) (TList t2) = mgu t1 t2
 mgu (TId n) (TRec n' xs') =
   if n == n'
     then do
