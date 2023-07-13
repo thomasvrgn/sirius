@@ -253,7 +253,7 @@ convertExpression (A.EApplication (A.EVariable x t) args ret) = do
                         else map C.annotedType args1
                     , case C.annotedType name of
                         _ T.:-> ret'' -> Just ret''
-                        _ -> Nothing)
+                        _             -> Nothing)
              else do
                ST.modify $ \s ->
                  s {clConverted = S.insert (C.annotedName name) (clConverted s)}
@@ -271,6 +271,7 @@ convertExpression (A.EApplication (A.EVariable x t) args ret) = do
                        (if all isJust tys
                           then catMaybes tys
                           else map C.annotedType args1)
+              --  traceShowM body'
                RWS.tell
                  [A.TFunction gens name' args2 (A.EBlock (stmts' ++ [body']))]
                return
@@ -280,8 +281,8 @@ convertExpression (A.EApplication (A.EVariable x t) args ret) = do
                      then catMaybes tys
                      else map C.annotedType args2
                  , case C.annotedType name of
-                    _ T.:-> t' -> Just t'
-                    _          -> Nothing)
+                     _ T.:-> t' -> Just t'
+                     _          -> Nothing)
          _ -> do
            (A.EVariable x' _, _, Just (_ T.:-> t')) <-
              convertExpression (A.EVariable x t)
@@ -325,18 +326,29 @@ convertExpression (A.EApplication f args ret) = do
                    (A.EProperty (A.EVariable name z) "env" Nothing : args')
                    (fromJust ty))
                 ty
-        return (call, stmts1 ++ concat stmts2, case ty of Just (_ T.:-> t) -> Just t; _ -> Nothing)
+        return
+          ( call
+          , stmts1 ++ concat stmts2
+          , case ty of
+              Just (_ T.:-> t) -> Just t
+              _                -> Nothing)
     Just z@(T.TApp (T.TId n) tys)
-      | all (\(T.TId n') -> n' `S.member` structs) tys && "$$Either" `T.isPrefixOf` n -> do
+      | all (\(T.TId n') -> n' `S.member` structs) tys &&
+          "$$Either" `T.isPrefixOf` n -> do
         let ns = map (\(T.TId n') -> n') tys
         let ty' = map (`L.lookup` S.toList fnStructs) ns
         let tys' = catMaybes ty'
-        let ty = case tys' of
-              [t] -> Just t
-              xs -> Just $ T.TApp (T.TId n) xs
-        let env = T.TApp (T.TId n) $ mapMaybe (\case
-                (envTy:_) T.:-> _ -> Just envTy
-                _ -> Nothing) tys'
+        let ty =
+              case tys' of
+                [t] -> Just t
+                xs  -> Just $ T.TApp (T.TId n) xs
+        let env =
+              T.TApp (T.TId n) $
+              mapMaybe
+                (\case
+                   (envTy:_) T.:-> _ -> Just envTy
+                   _                 -> Nothing)
+                tys'
         let call =
               A.ELet
                 (C.Annoted name z)
@@ -347,7 +359,12 @@ convertExpression (A.EApplication f args ret) = do
                    (A.EProperty (A.EVariable name z) "env" (Just env) : args')
                    (fromJust ty))
                 ty
-        return (call, stmts1 ++ concat stmts2, case ty of Just (_ T.:-> t) -> Just t; _ -> Nothing)
+        return
+          ( call
+          , stmts1 ++ concat stmts2
+          , case ty of
+              Just (_ T.:-> t) -> Just t
+              _                -> Nothing)
     Just (_ T.:-> ret') -> do
       let call = A.EApplication f' args' ret'
       return (call, stmts1 ++ concat stmts2, Just ret')
@@ -366,7 +383,10 @@ convertExpression (A.EIf cond t f _) = do
   let ty' =
         case t'' of
           Just (t1', t2') -> Just (T.TApp (T.TId ("$$Either" <> l)) [t1', t2'])
-          Nothing         -> if t1 == t2 then fromJust (viaNonEmpty last t1) else Nothing
+          Nothing -> case (viaNonEmpty last t1, viaNonEmpty last t2) of
+            (Just (Just t1'), _) -> Just t1'
+            (_, Just (Just t2')) -> Just t2'
+            _                    -> Just T.Void 
   return
     ( A.EIf cond' t' f' (fromJust ty')
     , stmts1 ++ concat stmts2 ++ concat stmts3
@@ -378,7 +398,9 @@ convertExpression (A.EMatch (expr, ty) cases) = do
   return
     ( A.EMatch (expr', ty) cases'
     , stmts1 ++ concat stmts2
-    , if all (isLambdaType . fromJust) tys then Just (T.TApp (T.TId ("$$Either" <> l)) (catMaybes tys)) else fromJust (viaNonEmpty head tys))
+    , if all (isLambdaType . fromJust) tys
+        then Just (T.TApp (T.TId ("$$Either" <> l)) (catMaybes tys))
+        else fromJust (viaNonEmpty head tys))
   where
     convertCase (pat, expr', t) = do
       (expr'', stmts2, ty') <- convertExpression expr'
@@ -386,13 +408,13 @@ convertExpression (A.EMatch (expr, ty) cases) = do
 convertExpression (A.ELiteral x) = return (A.ELiteral x, [], Just $ typeOfLit x)
 convertExpression (A.EList xs t) = do
   (xs', stmts, _) <- unzip3 <$> mapM convertExpression xs
-  return (A.EList xs' t, concat stmts, Just $ T.TList t)
+  return (A.EList xs' t, concat stmts, Just $ T.TAddr t)
 convertExpression z@A.EFunction {} = closureConvert z ""
 convertExpression (A.EIndex arr idx) = do
   (arr', stmts1, t) <- convertExpression arr
   (idx', stmts2, _) <- convertExpression idx
   case t of
-    Just (T.TList t') -> return (A.EIndex arr' idx', stmts1 ++ stmts2, Just t')
+    Just (T.TAddr t') -> return (A.EIndex arr' idx', stmts1 ++ stmts2, Just t')
     _                 -> return (A.EIndex arr' idx', stmts1 ++ stmts2, Nothing)
 convertExpression (A.EProperty str name t) = do
   (str', stmts, _) <- convertExpression str
@@ -426,12 +448,12 @@ convertExpression (A.EVariable x t) = do
     _ -> return (A.EVariable x t, [], Just t)
 convertExpression (A.EUpdate updated e) = do
   (e', stmts, _) <- convertExpression e
-  return (A.EUpdate updated e', stmts, Nothing)
+  return (A.EUpdate updated e', stmts, Just T.Void)
 convertExpression (A.ELet (C.Annoted name t) e body ty') = do
   (e', stmts1, valueTy) <- convertExpression e
   (body', stmts2, ty) <-
     case body of
-      Nothing -> return (Nothing, [], Nothing)
+      Nothing -> return (Nothing, [], Just T.Void)
       Just body' -> do
         (body'', stmts2, ty) <- convertExpression body'
         return (Just body'', stmts2, ty)
