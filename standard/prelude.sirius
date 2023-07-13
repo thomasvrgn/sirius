@@ -1,4 +1,3 @@
-extern panic[a](message: String): a;
-use string;
+use text.string;
 use arithmetic;
 use io;
