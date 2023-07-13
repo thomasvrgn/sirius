@@ -43,14 +43,14 @@ unify :: M.MonadChecker m => AP.Constraint -> m ()
 unify c = ST.modify (\s -> s {M.constraints = M.constraints s ++ [c]})
 
 withClass ::
-     M.MonadChecker m => (T.Type, Text) -> T.Scheme -> m a -> C.Position -> m a
-withClass z@(ty, name) scheme m pos = do
+     M.MonadChecker m => (T.Type, Text, Bool) -> T.Scheme -> m a -> C.Position -> m a
+withClass z@(ty, name, b) scheme m pos = do
   env <- ST.gets M.classes
   case M.lookup z env of
     Nothing -> do
-      ST.modify (\s -> s {M.classes = M.insert (ty, name) scheme env})
+      ST.modify (\s -> s {M.classes = M.insert (ty, name, b) scheme env})
       a <- m
-      ST.modify (\s -> s {M.classes = M.delete (ty, name) (M.classes s)})
+      ST.modify (\s -> s {M.classes = M.delete (ty, name, b) (M.classes s)})
       return a
     Just _ -> E.throwError ("Class " <> name <> " already exists", Nothing, pos)
 
@@ -82,6 +82,10 @@ findName (T.TId name) = name
 findName _            = error "Invalid type"
 
 inferExpression :: M.Infer (C.Located C.Expression) m A.Expression
+inferExpression (C.Located pos C.EHole) = do
+  tv <- M.fresh
+  unify (AP.Hole tv, pos)
+  return (tv, A.EVariable "_" tv)
 inferExpression (C.Located pos (C.EVariable (D.Simple name))) = do
   env <- ST.gets M.variables
   case M.lookup name env of
@@ -189,11 +193,11 @@ inferExpression (C.Located pos (C.EList exprs)) = do
   tv <- M.fresh
   (tys, exprs') <- unzip <$> mapM (M.local' . inferExpression) exprs
   mapM_ (\t -> unify (t AP.:~: tv, pos)) tys
-  return (T.TList tv, A.EList exprs' tv)
+  return (T.TAddr tv, A.EList exprs' tv)
 inferExpression (C.Located pos (C.EIndex expr index)) = do
   tv <- M.fresh
   (t, expr') <- M.local' $ inferExpression expr
-  unify (t AP.:~: T.TList tv, pos)
+  unify (t AP.:~: T.TAddr tv, pos)
   (t', index') <- M.local' $ inferExpression index
   unify (t' AP.:~: T.Int, pos)
   return (tv, A.EIndex expr' index')
@@ -394,7 +398,7 @@ inferToplevel (C.Located pos (C.TFunctionProp gens prop (C.Annoted name ret) arg
     P.withGenerics
       generics'''
       (withClass
-         (propTy, name)
+         (propTy, name, False)
          (T.Forall gens' funTy)
          (withVariables args' $ M.local' $ do
             res@(t, _) <- inferExpression body
@@ -409,14 +413,15 @@ inferToplevel (C.Located pos (C.TFunctionProp gens prop (C.Annoted name ret) arg
   let scheme' =
         if null gens
           then generalize
-                 env
+                 (T.apply s env)
                  (T.apply s ((propTy : map snd argsTypes) T.:-> ret'))
-          else T.Forall gens' $
+          else T.Forall (T.apply s gens') $
                T.apply s ((propTy : map snd argsTypes) T.:-> ret')
+
   ST.modify $ \s' ->
     s'
       { M.returnType = T.Void
-      , M.classes = M.insert (T.apply s propTy, name) scheme' (M.classes s')
+      , M.classes = M.insert (T.apply s propTy, name, False) scheme' (M.classes s')
       }
   return
     ( T.Void
@@ -470,7 +475,7 @@ inferToplevel (C.Located _ (C.TProperty gens (C.Annoted _ propTy) (C.Annoted met
           generics''
   let scheme = T.Forall gens' ((propTy' : map C.annotedType args') T.:-> ret')
   ST.modify $ \s ->
-    s {M.classes = M.insert (propTy', method) scheme (M.classes s)}
+    s {M.classes = M.insert (propTy', method, True) scheme (M.classes s)}
   return (T.Void, Nothing)
 inferToplevel (C.Located _ (C.TEnumeration (C.Annoted name gens) variants)) = do
   gens' <- ST.gets M.generics
@@ -527,7 +532,7 @@ inferUpdate (C.Located pos (C.UProperty obj name)) = do
 inferUpdate (C.Located pos (C.UIndex obj index)) = do
   tv <- M.fresh
   (t, e') <- M.local' $ inferUpdate obj
-  unify (t AP.:~: T.TList tv, pos)
+  unify (t AP.:~: T.TAddr tv, pos)
   (t', e'') <- M.local' $ inferExpression index
   unify (t' AP.:~: T.Int, pos)
   return (tv, A.UIndex e' e'')

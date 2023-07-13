@@ -16,6 +16,8 @@ import qualified Data.Map                                       as M
 import qualified Language.Sirius.Typecheck.Definition.Type      as T
 import           Prelude                                        hiding
                                                                 (Constraint)
+import qualified Control.Monad.State as ST
+import qualified Data.Set as S
 
 findM :: (Foldable f, Monad m) => (a -> m Bool) -> f a -> m (Maybe a)
 findM p = foldr (\x -> ifM (p x) (pure $ Just x)) (pure Nothing)
@@ -86,7 +88,8 @@ solve ((Field f t1 t2, pos):xs) = do
 solve ((Class name ty (args T.:-> ret), pos):xs) = do
   classes' <- gets classes
   let classes'' = M.toList classes'
-  foundScheme <- find' (name, ty) classes''
+  classes3 <- sortClassesOnTrue classes''
+  foundScheme <- find' (name, ty) classes3
   case foundScheme of
     Just scheme -> do
       t <- instantiate scheme
@@ -101,7 +104,18 @@ solve ((Class name ty (args T.:-> ret), pos):xs) = do
         ( "Function property " <> name <> " not found on " <> show ty
         , Nothing
         , pos)
+solve ((Hole t, pos):xs) = do
+  ST.modify $ \s -> s {holes = S.insert (pos, t) $ holes s}
+  solve xs
+
 solve ((_, pos):_) = E.throwError ("Cannot solve constraints", Nothing, pos)
+
+sortClassesOnTrue :: MonadChecker m => [((T.Type, Text, Bool), T.Scheme)] -> m [((T.Type, Text), T.Scheme)]
+sortClassesOnTrue [] = return []
+sortClassesOnTrue (((ty, name, True), sch):xs) = do
+  rest <- sortClassesOnTrue xs
+  return $ ((ty, name), sch) : rest
+sortClassesOnTrue (((ty, n, False), sch):xs) = (++) <$> sortClassesOnTrue xs <*> pure [((ty, n), sch)]
 
 find' :: MonadChecker m => (Text, T.Type) -> [((T.Type, Text), T.Scheme)] -> m (Maybe T.Scheme)
 find' (txt, z@(T.TVar _)) (((T.TVar _, name), sch):xs) = do

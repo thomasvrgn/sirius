@@ -22,6 +22,7 @@ data ConstraintConstructor
   = T.Type :~: T.Type
   | Field Text T.Type T.Type
   | Class Text T.Type T.Type
+  | Hole T.Type
 
 type Constraint = (ConstraintConstructor, Position)
 
@@ -37,6 +38,7 @@ instance T.Show ConstraintConstructor where
   show (t1 :~: t2)     = show t1 ++ " ~ " ++ show t2
   show (Field f t1 t2) = show t1 ++ "." ++ toString f ++ " ~ " ++ show t2
   show (Class n t1 t2) = show t1 ++ " : " ++ toString n ++ " " ++ show t2
+  show (Hole t)        = "_ ~ " ++ show t
 
 instance {-# OVERLAPS #-} T.Show Constraint where
   show (c, _) = show c
@@ -45,9 +47,12 @@ instance Types ConstraintConstructor where
   free (t1 :~: t2)     = free t1 `S.union` free t2
   free (Field _ t1 t2) = free t1 `S.union` free t2
   free (Class _ t1 t2) = free t1 `S.union` free t2
+  free (Hole t)        = free t
+
   apply s (t1 :~: t2)     = apply s t1 :~: apply s t2
   apply s (Field f t1 t2) = Field f (apply s t1) (apply s t2)
   apply s (Class n t1 t2) = Class n (apply s t1) (apply s t2)
+  apply s (Hole t)        = Hole $ apply s t
 
 compose :: Substitution -> Substitution -> Substitution
 compose s1 s2 = M.map (apply s1) s2 `M.union` M.map (apply s2) s1
@@ -74,6 +79,12 @@ instance Types T.Type where
   apply _ (T.TId s) = T.TId s
   apply _ T.Char = T.Char
   apply s (T.TRec n xs) = T.TRec n $ apply s xs
+
+instance Types Int where
+  free _ = S.singleton 0
+  apply s i = case M.lookup i s of
+    Just (T.TVar i') -> i'
+    _                -> i
 
 instance {-# OVERLAPPING #-} Types a => Types (M.Map Text a) where
   free = free . M.elems

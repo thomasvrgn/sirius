@@ -14,6 +14,7 @@ import           Prelude                                        hiding
                                                                 (Constraint,
                                                                  Type, ask,
                                                                  local)
+import qualified Data.Set as S
 
 type Environment = Map Text T.Scheme
 
@@ -31,9 +32,9 @@ data CheckerState =
     , constraints :: [A.Constraint]
     , generics    :: M.Map Text T.Type
     , returnType  :: T.Type
-    , classes     :: M.Map (T.Type, Text) T.Scheme
-    , staticFns   :: M.Map (T.Type, Text) T.Scheme
+    , classes     :: M.Map (T.Type, Text, Bool) T.Scheme
     , aliases     :: M.Map Text T.Scheme
+    , holes       :: S.Set (C.Position, T.Type)
     }
   
 instance Semigroup CheckerState where
@@ -46,8 +47,8 @@ instance Semigroup CheckerState where
       , generics = generics s1 `M.union` generics s2
       , returnType = if returnType s1 == T.Void then returnType s2 else returnType s1
       , classes = classes s1 `M.union` classes s2
-      , staticFns = staticFns s1 `M.union` staticFns s2
       , aliases = aliases s1 `M.union` aliases s2
+      , holes = holes s1 `S.union` holes s2
       }
 
 instance Monoid CheckerState where
@@ -60,8 +61,8 @@ instance Monoid CheckerState where
       , generics = mempty
       , returnType = T.Void
       , classes = mempty
-      , staticFns = mempty
       , aliases = mempty
+      , holes = mempty
       }
 
 union' :: Envs -> Envs -> Envs
@@ -92,9 +93,10 @@ local f m = do
   a <- m
   cnt' <- gets counter
   csts <- gets constraints
+  holes' <- gets holes
   modify
     (\s ->
-       s {variables = vars, types = types', counter = cnt', constraints = csts})
+       s {variables = vars, types = types', counter = cnt', constraints = csts, holes = holes'})
   return a
 
 local' :: MonadChecker m => m a -> m a

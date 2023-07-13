@@ -227,6 +227,7 @@ resolveImportedExpressions (EMatch expr cases :>: pos) = do
   expr' <- resolveImportedExpressions expr
   cases' <- mapM (\(pat, expr) -> local id $ (,) <$> resolveImportedPattern pat <*> resolveImportedExpressions expr) cases
   return $ EMatch expr' cases' :>: pos
+resolveImportedExpressions (EHole :>: pos) = return (EHole :>: pos)
 resolveImportedExpressions (Located pos _) = E.throwError ("Not implemented", pos)
 
 resolveImportedUpdate :: MonadBundling m => Located UpdateExpression -> m (Located UpdateExpression)

@@ -157,15 +157,22 @@ parseExpression = do
 
 parseAssembly :: Monad m => L.Sirius m C.Expression
 parseAssembly = L.lexeme $ do
-  L.reserved "asm"
+  L.reserved "From"
+  L.reservedOp "["
   op <- fromString <$> stringLiteral
-  args <- some parseExpression
+  L.reservedOp ","
+  args <- P.sepBy parseExpression (L.reservedOp ",")
+  L.reservedOp "]"
   return $ C.EAssembly op args
+
+parseHole :: Monad m => L.Sirius m C.Expression
+parseHole = L.lexeme $ L.reservedOp "?" $> C.EHole
 
 parseTerm :: Monad m => L.Sirius m C.Expression
 parseTerm =
   P.choice
-    [ parseUpdate
+    [ parseHole
+    , parseUpdate
     , L.parens parseExpression
     , parseStruct
     , parseAssembly

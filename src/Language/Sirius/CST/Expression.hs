@@ -149,6 +149,12 @@ data Expression
   --   The first argument is the assembly code
   --   The second argument is a list of arguments
   | EMatch (Located Expression) [Match]
+  -- ^ EMatch denotes a match expression
+  --   The first argument is the expression
+  --   The second argument is a list of matches
+  | EHole
+  -- ^ EHole denotes a hole
+  --   The argument is the name of the hole
   deriving (Eq, Show)
 
 type Match = (Located Pattern, Located Expression)
