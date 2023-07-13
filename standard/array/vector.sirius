@@ -1,0 +1,87 @@
+use std.io;
+use std.internal.error;
+use std.internal.memory;
+
+struct InternalVector[a] {
+  data: ref a,
+  size: Int,
+  capacity: Int
+}
+
+type Vector[a] = ref InternalVector[a];
+
+fn (c: Vector[a]) len(): Int = c->size;
+fn (c: Vector[a]) cap(): Int = c->capacity;
+
+mod Vector {
+  fn new[a](capacity: Int): Vector[a] = {
+    let result: InternalVector[a] = InternalVector[a] {
+      data = malloc((sizeof ref a) * capacity),
+      size = 0,
+      capacity = capacity
+    };
+
+    let res: Vector[a] = malloc(sizeof Vector[a]);
+    *res = result;
+    res
+  }
+}
+
+fn (c: Vector[a]) index[a](idx: Int): a = {
+  if idx < 0 || idx >= c->size {
+    panic("Index out of bounds");
+  }
+  c->data.at(idx);
+}
+
+fn (c: Vector[a]) slice[a](start: Int): Vector[a] = {
+  if (start < 0) || (start >= c->size) {
+    panic("Index out of bounds");
+  }
+
+  let size: Int = c->size - start;
+  let result: Vector[a] = Vector::new(size);
+
+  for i in 0 to size {
+    result->data[i] = c[start + i];
+  }
+  
+  result;
+}
+
+fn (c: Vector[a]) push[a](value: a): Void = {
+  if c->size == c->capacity {
+    let new_capacity: Int = 1;
+    if c->capacity > 0 {
+      new_capacity = c->capacity * 2;
+    }
+    let new_data: ref a = From["alloca", sizeof [a]];
+    for i in 0 to c->size {
+      new_data[i] = c->data.at(i);
+    }
+    c->data = new_data;
+    c->capacity = new_capacity;
+  }
+  c->data[c->size] = value;
+  c->size = c->size + 1;
+}
+
+fn (c: InternalVector[a]) show[a](): String = {
+  let result: String = "[";
+  for i in 0 to c.size {
+    result = result + c.data.at(i).show()
+    if i < c.size - 1 {
+      result = result + ", ";
+    } 
+  }
+  result = result + "]";
+  result;
+}
+
+fn (c: String) toVector(): Vector[Char] = {
+  let result: Vector[Char] = Vector::new(c.len());
+  for i in 0 to c.len() {
+    result.push(c[i]);
+  }
+  result;
+}
