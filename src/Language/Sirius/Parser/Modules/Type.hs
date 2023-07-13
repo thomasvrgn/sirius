@@ -15,7 +15,7 @@ parsePrimitive =
     , L.reserved "Bool" F.$> D.TypeBool
     , L.reserved "Char" F.$> D.TypeChar
     , L.reserved "Void" F.$> D.TypeVoid
-    , L.reserved "String" F.$> D.TypeApp (D.Simple "List") [D.TypeChar]
+    , L.reserved "String" F.$> D.TypeApp (D.Simple "Address") [D.TypeChar]
     ]
 
 parseMutable :: Monad m => L.Parser m D.Type
@@ -39,7 +39,7 @@ parseTypeFloat = L.reserved "Float" F.$> D.TypeFloat
 parseTypeList :: Monad m => L.Parser m D.Type
 parseTypeList = do
   ty <- L.brackets parseType
-  return $ D.TypeApp (D.Simple "List") [ty]
+  return $ D.TypeApp (D.Simple "Vector") [ty]
 
 parseTypeApp :: Monad m => L.Parser m D.Type
 parseTypeApp = do

@@ -52,7 +52,6 @@ fromType T.Bool = return AST.i1
 fromType T.TString = return $ AST.ptr AST.i8
 fromType T.Char = return AST.i8
 fromType (T.TAddr T.Void) = return $ AST.ptr AST.i8
-fromType (T.TList T.Void) = return $ AST.ptr AST.i8
 fromType (T.TAddr (T.TVar _)) = return $ AST.ptr AST.i8
 fromType (T.TAddr t) = AST.ptr <$> fromType t
 fromType (T.TVar _) = return $ AST.ptr AST.i8
@@ -75,7 +74,6 @@ fromType (T.TRec name f) = do
       case alias' of
         Just (alias'', _) -> return alias''
         Nothing -> error $ "fromType: alias " <> name <> " not found"
-fromType (T.TList t) = AST.ptr <$> fromType t
 fromType (T.TApp (T.TId n) tys) | "$$Either" `T.isPrefixOf` n = do
   tys' <- mapM fromType tys
   sizes <- mapM sizeOf tys'

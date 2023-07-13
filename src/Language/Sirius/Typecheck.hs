@@ -9,6 +9,7 @@ import qualified Language.Sirius.Typecheck.Checker          as I
 import qualified Language.Sirius.Typecheck.Definition.AST   as A
 import           Language.Sirius.Typecheck.Definition.Monad (CheckerState (..))
 import qualified Language.Sirius.Typecheck.Definition.Type  as T
+import qualified Data.Set as S
 
 runInferencePass ::
      Monad m
@@ -17,7 +18,13 @@ runInferencePass ::
 runInferencePass toplevels =
   E.runExceptT $
   ST.runStateT
-    (catMaybes <$> mapM ((snd <$>) . I.inferToplevel) toplevels)
+    (do
+      xs <- catMaybes <$> mapM ((snd <$>) . I.inferToplevel) toplevels
+      s <- ST.gets holes
+      if S.null s
+        then return xs
+        else mapM (\(pos, t) -> E.throwError ("Unresolved holes, receiving " <> show t, Nothing, pos)) (S.toList s)
+    )
     (mempty {variables = functions})
 
 functions :: M.Map Text T.Scheme
