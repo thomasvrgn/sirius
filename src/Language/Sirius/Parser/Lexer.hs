@@ -33,6 +33,7 @@ reservedWords =
   , "to"
   , "enum"
   , "match"
+  , "mod"
   ]
 
 languageDef :: Monad m => Token.GenLanguageDef Text u m

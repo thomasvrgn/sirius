@@ -15,6 +15,13 @@ parseImport =
     name <- (:) <$> L.identifier <*> P.many (P.string "." *> L.identifier)
     return $ C.TUse name
 
+parseModuleDefinition :: Monad m => L.Sirius m C.Expression -> L.Sirius m C.Toplevel
+parseModuleDefinition e =
+  L.lexeme $ do
+    L.reserved "mod"
+    name <- L.identifier
+    C.TNamespace name <$> L.braces (P.many (parseToplevel e))
+
 parseTypeAlias :: Monad m => L.Sirius m C.Toplevel
 parseTypeAlias =
   L.lexeme $ do
@@ -146,6 +153,7 @@ parseToplevel p =
   P.choice
     [ parseImport
     , parseAnnotation p
+    , parseModuleDefinition p
     , parseTypeAlias
     , parseEnumeration
     , P.try $ parsePropFunction p
