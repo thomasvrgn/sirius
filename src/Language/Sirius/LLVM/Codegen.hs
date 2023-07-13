@@ -170,17 +170,23 @@ genExpression (T.EIfElse cond then' else' t) = do
   env <- ST.gets lsEnv
   namedBlock thenLabel
   then'' <- viaNonEmpty last . catMaybes <$> mapM genExpression then'
-  ty <- fromRight (AST.ptr AST.i8) <$> AST.typeOf (fromJust then'')
-  then''' <- if ty /= t' then Just <$> bitcast (fromJust then'') t' else return then''
-    
+  then''' <- case then'' of
+    Just x -> do
+      ty <- fromRight (AST.ptr AST.i8) <$> AST.typeOf x
+      if ty /= t' then Just <$> bitcast x t' else return $ Just x
+    Nothing -> return Nothing 
+
   IRB.br mergeLabel
   thenLabel' <- IRB.currentBlock
   ST.modify $ \s -> s {lsEnv = env}
   env' <- ST.gets lsEnv
   namedBlock elseLabel
   else'' <- viaNonEmpty last . catMaybes <$> mapM genExpression else'
-  ty' <- fromRight (AST.ptr AST.i8) <$> AST.typeOf (fromJust else'')
-  else''' <- if ty' /= t' then Just <$> bitcast (fromJust else'') t' else return else''
+  else''' <- case else'' of
+    Just x -> do
+      ty' <- fromRight (AST.ptr AST.i8) <$> AST.typeOf x
+      if ty' /= t' then Just <$> bitcast x t' else return (Just x)
+    Nothing -> return Nothing
   IRB.br mergeLabel
   elseLabel' <- IRB.currentBlock
   ST.modify $ \s -> s {lsEnv = env'}
@@ -259,7 +265,7 @@ genExpression (T.EList t elems) = do
   elems' <- mapM genExpression elems
   let elems'' = map fromJust elems'
   ty <- fromType t
-  var <- IRB.alloca ty Nothing 0
+  var <- IRB.alloca ty (Just $ IRB.int32 (fromIntegral (length elems))) 0
   forM_ (zip [0 ..] elems'') $ \(i, elem') -> do
     elem'' <- IRB.gep var [IRB.int32 i]
     IRB.store elem'' 0 elem'
@@ -480,6 +486,18 @@ parseAssembly (T.EAssembly "fcmp" (T.ELiteral (L.String cmp):x:y:_)) = do
           "true"  -> FP.True
           _       -> error "parseAssembly: invalid fcmp"
   Just <$> IRB.fcmp cmp' x' y'
+parseAssembly (T.EAssembly "or" (x:y:_)) = do
+  x' <- fromJust <$> genExpression x
+  y' <- fromJust <$> genExpression y
+  Just <$> IRB.or x' y'
+parseAssembly (T.EAssembly "and" (x:y:_)) = do
+  x' <- fromJust <$> genExpression x
+  y' <- fromJust <$> genExpression y
+  Just <$> IRB.and x' y'
+parseAssembly (T.EAssembly "xor" (x:y:_)) = do
+  x' <- fromJust <$> genExpression x
+  y' <- fromJust <$> genExpression y
+  Just <$> IRB.xor x' y'
 parseAssembly z = error $ "parseAssembly: not implemented: " <> show z
 
 bitcastStruct :: LLVM m => AST.Operand -> AST.Type -> m AST.Operand
