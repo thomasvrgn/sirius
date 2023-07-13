@@ -1,0 +1,22 @@
+extern show_char(c: Char): String;
+
+fn (c: Char) == (other: Char): Bool = From["icmp", "eq", c, other];
+fn (c: Char) != (other: Char): Bool = From["icmp", "ne", c, other];
+fn (c: Char) < (other: Char): Bool = From["icmp", "slt", c, other];
+fn (c: Char) > (other: Char): Bool = From["icmp", "sgt", c, other];
+fn (c: Char) <= (other: Char): Bool = From["icmp", "sle", c, other];
+fn (c: Char) >= (other: Char): Bool = From["icmp", "sge", c, other];
+fn (c: Char) +(other: Char): Char = From["add", c, other];
+fn (c: Char) -(other: Char): Char = From["sub", c, other];
+fn (c: Char) *(other: Char): Char = From["mul", c, other];
+fn (c: Char) /(other: Char): Char = From["sdiv", c, other];
+fn (c: Char) %(other: Char): Char = From["srem", c, other];
+fn (c: Char) &(other: Char): Char = From["and", c, other];
+fn (c: Char) |(other: Char): Char = From["or", c, other];
+fn (c: Char) ^(other: Char): Char = From["xor", c, other];
+fn (c: Char) <<(other: Char): Char = From["shl", c, other];
+fn (c: Char) >>(other: Char): Char = From["ashr", c, other];
+fn (c: Char) ~(): Char = From["not", c];
+fn (c: Char) ++(): Char = From["add", c, 1];
+fn (c: Char) --(): Char = From["sub", c, 1];
+fn (c: Char) show(): String = show_char(c);
