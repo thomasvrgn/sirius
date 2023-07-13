@@ -1,0 +1,15 @@
+extern malloc[a](size: Int): ref a;
+extern free[a](ptr: ref a): Int;
+extern realloc[a](ptr: ref a, size: Int): ref a;
+extern memcpy[a](dest: ref a, src: ref a, size: Int): ref a;
+extern memset[a](dest: ref a, value: a, size: Int): ref a;
+extern memcmp[a](a: ref a, b: ref a, size: Int): Int;
+
+mod Ptr {
+  fn new[a](size: Int): ref a = malloc(size);
+
+  fn free[a](ptr: ref a): Int = free(ptr);
+
+  fn realloc[a](ptr: ref a, size: Int): ref a = realloc(ptr, size);
+}
+fn (c: ref a) at[a](idx: Int): a = From["load", From["gep", c, idx]];
