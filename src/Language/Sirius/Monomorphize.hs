@@ -307,9 +307,10 @@ monoExpr (A.EUpdate update expr) = do
   update' <- monoUpdate update
   expr' <- monoExpr expr
   return $ A.EUpdate update' expr'
-monoExpr (A.EAssembly op exprs) = do
+monoExpr (A.EAssembly (op, ty) exprs) = do
+  ty' <- monoType ty
   exprs' <- mapM monoExpr exprs
-  return $ A.EAssembly op exprs'
+  return $ A.EAssembly (op, ty') exprs'
 monoExpr (A.ELocated expr _) = monoExpr expr
 monoExpr A.EVariable {} = error "COMPILER ERROR: EVariable should not be in the AST at this point"
 monoExpr A.EClassVariable {} = error "COMPILER ERROR: EClassVariable should not be in the AST at this point"
@@ -347,8 +348,8 @@ monoUpdate :: MonadMono m => A.UpdateExpression -> m A.UpdateExpression
 monoUpdate (A.UVariable name ty) = do
   m <- ST.gets mstTypeMap
   case M.lookup (name, ty) m of
-    Just name' -> return $ A.UVariable name' ty
-    Nothing    -> return $ A.UVariable name ty
+    Just name' -> A.UVariable name' <$> monoType ty
+    Nothing    -> A.UVariable name <$> monoType ty
 monoUpdate (A.UDereference expr) = do
   expr' <- monoUpdate expr
   return $ A.UDereference expr'
@@ -362,7 +363,6 @@ monoUpdate (A.UProperty expr field) = do
 monoUpdate (A.UInternalField expr field) = do
   expr' <- monoUpdate expr
   return $ A.UInternalField expr' field
-
 
 runMonomorphizationPass :: Monad m => [A.Toplevel] -> Checker.CheckerState -> m (Either (Text, Maybe Text, C.Position) [A.Toplevel])
 runMonomorphizationPass xs c = do
