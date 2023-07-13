@@ -1,55 +1,18 @@
 use std.prelude;
-
-extern malloc[a](size: Int): ref a;
-
-enum LinkedList[a] {
-  Nil,
-  Cons(a, ref LinkedList[a])
-}
-
-type Test[a] = ref LinkedList[a];
-
-fn (c: String) ==(other: String): Bool = strcmp(c, other) == 0;
-
-fn (c: a) typeOf[a](): String = asm "extractvalue" (asm "extractvalue" c 0) 0;
-fn (c: LinkedList[a]) first[a](): a = asm "extractvalue" (asm "extractvalue" c 0) 1;
-fn (c: LinkedList[a]) show[a](): String = {
-  c match {
-    Nil => "Nil"
-    Cons(x, xs) => "Cons(" + x.show() + ", " + xs.show() + ")"
-  }
-}
-
-fn (c: LinkedList[a]) len[a](): Int = {
-  c match {
-    Nil => 0
-    Cons(_, xs) => 1 + xs->len()
-  }
-}
-
-fn test(x: String): fn(): String = {
-  x match {
-    "bruh" => fn (): String = x + "bruh"
-    "bruh2" => fn (): String = x + "bruh2"
-    _ => fn (): String = "bruh3"
-  }
-}
-
-fn (c: a) x[a](): String = asm "extractvalue" (asm "extractvalue" c 1) 0;
-
-enum Unit {
-  Unit
-}
-
-fn (c: Unit) show(): String = "Unit";
+use std.array.vector;
 
 fn main(): Int = {
-  // print(Cons(5, ref Nil));
-  print(test("bruh")());
-  
-  let x: Test[Int] = ref Nil;
+  print("Hello world");
 
-  print(Cons(5, ref Cons(4, ref Cons(3, x))).len());
-  print(Unit);
+  let array: Vector[String] = Vector::new(10);
+  let i: Int = 0;
+
+  while i < 3 {
+    putstr("Enter a string: ");
+    let input: String = IO::input();
+    i = i + 1;
+  }
+  
+  print(array);
   0
 }
